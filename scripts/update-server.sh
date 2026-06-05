@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# PiCommand Server Update Script
-# Run from the repo root: bash scripts/update-server.sh
 set -euo pipefail
 
 PICOMMAND_DIR="/opt/picommand"
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 GREEN='\033[0;32m'; NC='\033[0m'
 info() { echo -e "${GREEN}[UPDATE]${NC} $*"; }
 
 info "Pulling latest changes..."
+cd "$REPO_DIR"
 git pull
 
 info "Copying server files..."
@@ -19,6 +19,5 @@ info "Installing any new dependencies..."
 
 info "Restarting service..."
 systemctl restart picommand
-
 sleep 2
-systemctl is-active picommand && info "PiCommand updated and running!" || echo "Check: journalctl -u picommand"
+systemctl is-active picommand && info "Done! PiCommand updated." || echo "Check: journalctl -u picommand"
