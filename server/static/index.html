@@ -1,0 +1,1528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PiCommand — Node Management</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ── Reset & Variables ─────────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #070b10;
+    --bg2: #0d1117;
+    --bg3: #141c25;
+    --bg4: #1a2433;
+    --border: rgba(48,120,200,0.18);
+    --border2: rgba(48,120,200,0.35);
+    --accent: #1e7fff;
+    --accent2: #00d4aa;
+    --accent3: #ff6b4a;
+    --warn: #f5a623;
+    --crit: #ff3b4e;
+    --ok: #27e8a7;
+    --text: #c8d8f0;
+    --text2: #6b8aaa;
+    --text3: #3d5470;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Space Grotesk', sans-serif;
+    --glow: 0 0 20px rgba(30,127,255,0.15);
+    --glow2: 0 0 40px rgba(30,127,255,0.08);
+    --radius: 8px;
+    --sidebar: 220px;
+  }
+
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 13px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Scrollbar ─────────────────────────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: var(--bg2); }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+  /* ── Topbar ────────────────────────────────────────────────────────────── */
+  #topbar {
+    display: flex; align-items: center; gap: 16px;
+    padding: 0 20px; height: 48px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    z-index: 100;
+  }
+  .logo {
+    font-size: 15px; font-weight: 700; letter-spacing: 0.05em;
+    color: #fff;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .logo-icon {
+    width: 26px; height: 26px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px;
+  }
+  .topbar-sep { flex: 1; }
+  #global-stats {
+    display: flex; gap: 24px; align-items: center;
+  }
+  .gstat {
+    display: flex; flex-direction: column; align-items: flex-end;
+  }
+  .gstat-val { font-size: 16px; font-weight: 600; font-family: var(--mono); color: #fff; }
+  .gstat-lbl { font-size: 10px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.08em; }
+  .topbar-user {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 12px; border-radius: var(--radius);
+    background: var(--bg3); border: 1px solid var(--border);
+    cursor: pointer; font-size: 12px; color: var(--text2);
+  }
+  .status-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--ok);
+    box-shadow: 0 0 6px var(--ok);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  #alert-badge {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 20px;
+    background: rgba(255,59,78,0.15); border: 1px solid rgba(255,59,78,0.3);
+    font-size: 11px; color: var(--crit); font-weight: 600;
+    cursor: pointer;
+  }
+  #alert-badge.hidden { display: none; }
+
+  /* ── Layout ────────────────────────────────────────────────────────────── */
+  #layout {
+    display: flex; flex: 1; overflow: hidden;
+  }
+
+  /* ── Sidebar ───────────────────────────────────────────────────────────── */
+  #sidebar {
+    width: var(--sidebar); flex-shrink: 0;
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .sidebar-section {
+    padding: 10px 12px 4px;
+    font-size: 9px; font-weight: 600; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--text3);
+  }
+  #node-list { overflow-y: auto; flex: 1; }
+  .node-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 14px; cursor: pointer;
+    transition: background 0.15s;
+    border-left: 2px solid transparent;
+    user-select: none;
+  }
+  .node-item:hover { background: var(--bg3); }
+  .node-item.active {
+    background: rgba(30,127,255,0.1);
+    border-left-color: var(--accent);
+  }
+  .node-status-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .node-status-dot.online { background: var(--ok); box-shadow: 0 0 5px var(--ok); }
+  .node-status-dot.offline { background: var(--text3); }
+  .node-status-dot.pending { background: var(--warn); }
+  .node-name {
+    font-size: 12px; font-weight: 500; color: var(--text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .node-location { font-size: 10px; color: var(--text3); margin-left: auto; }
+
+  /* ── Main ──────────────────────────────────────────────────────────────── */
+  #main {
+    flex: 1; overflow-y: auto; padding: 20px;
+    display: flex; flex-direction: column; gap: 16px;
+  }
+
+  /* ── Views ─────────────────────────────────────────────────────────────── */
+  .view { display: none; }
+  .view.active { display: contents; }
+
+  /* ── Cards ─────────────────────────────────────────────────────────────── */
+  .card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .card-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg3);
+  }
+  .card-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text2); }
+  .card-body { padding: 16px; }
+
+  /* ── Node Header ────────────────────────────────────────────────────────── */
+  #node-header {
+    display: flex; align-items: center; gap: 16px;
+    padding: 16px 20px;
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .node-title { font-size: 20px; font-weight: 700; color: #fff; }
+  .node-subtitle { font-size: 12px; color: var(--text2); font-family: var(--mono); margin-top: 2px; }
+  .badge {
+    padding: 3px 10px; border-radius: 20px;
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em;
+  }
+  .badge.online { background: rgba(39,232,167,0.15); color: var(--ok); border: 1px solid rgba(39,232,167,0.3); }
+  .badge.offline { background: rgba(61,84,112,0.3); color: var(--text3); border: 1px solid var(--border); }
+  .badge.pending { background: rgba(245,166,35,0.15); color: var(--warn); border: 1px solid rgba(245,166,35,0.3); }
+  .node-actions { margin-left: auto; display: flex; gap: 8px; }
+
+  /* ── Metric Grid ─────────────────────────────────────────────────────────── */
+  .metric-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+  }
+  @media (max-width: 900px) {
+    .metric-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  .metric-card {
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 14px 16px;
+  }
+  .metric-label {
+    font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--text3); margin-bottom: 6px;
+  }
+  .metric-value {
+    font-size: 26px; font-weight: 700; font-family: var(--mono);
+    color: #fff; line-height: 1;
+  }
+  .metric-unit { font-size: 13px; color: var(--text2); font-weight: 400; }
+  .metric-bar {
+    height: 3px; background: var(--bg4); border-radius: 2px;
+    margin-top: 8px; overflow: hidden;
+  }
+  .metric-bar-fill {
+    height: 100%; border-radius: 2px;
+    transition: width 0.5s ease, background 0.3s;
+  }
+
+  /* ── Charts ─────────────────────────────────────────────────────────────── */
+  .chart-area {
+    height: 160px; position: relative;
+    display: flex; align-items: flex-end; gap: 1px;
+    overflow: hidden;
+  }
+  .chart-line-svg {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+  }
+  canvas.sparkline {
+    width: 100%; height: 100%;
+  }
+
+  /* ── Terminal ─────────────────────────────────────────────────────────────── */
+  #terminal-output {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.6;
+    padding: 14px;
+    height: 280px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .term-prompt { color: var(--accent2); }
+  .term-cmd { color: #fff; }
+  .term-out { color: var(--text); }
+  .term-err { color: var(--crit); }
+  .term-info { color: var(--text2); }
+  .term-ok { color: var(--ok); }
+  #terminal-input-row {
+    display: flex; gap: 8px; margin-top: 8px;
+  }
+  #terminal-input {
+    flex: 1; background: var(--bg3); border: 1px solid var(--border2);
+    border-radius: var(--radius); padding: 9px 14px;
+    font-family: var(--mono); font-size: 12px; color: #fff;
+    outline: none; transition: border-color 0.15s;
+  }
+  #terminal-input:focus { border-color: var(--accent); }
+  #terminal-input::placeholder { color: var(--text3); }
+
+  /* ── Buttons ─────────────────────────────────────────────────────────────── */
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 14px; border-radius: var(--radius);
+    font-family: var(--sans); font-size: 12px; font-weight: 500;
+    cursor: pointer; border: 1px solid transparent;
+    transition: all 0.15s; outline: none;
+  }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-primary {
+    background: var(--accent); color: #fff; border-color: var(--accent);
+  }
+  .btn-primary:hover:not(:disabled) { background: #3b8fff; box-shadow: var(--glow); }
+  .btn-ghost {
+    background: var(--bg3); color: var(--text); border-color: var(--border);
+  }
+  .btn-ghost:hover:not(:disabled) { background: var(--bg4); border-color: var(--border2); }
+  .btn-danger {
+    background: rgba(255,59,78,0.15); color: var(--crit); border-color: rgba(255,59,78,0.3);
+  }
+  .btn-danger:hover:not(:disabled) { background: rgba(255,59,78,0.25); }
+  .btn-warn {
+    background: rgba(245,166,35,0.15); color: var(--warn); border-color: rgba(245,166,35,0.3);
+  }
+  .btn-sm { padding: 5px 10px; font-size: 11px; }
+
+  /* ── Table ─────────────────────────────────────────────────────────────── */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    text-align: left; padding: 8px 12px;
+    font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--text3); border-bottom: 1px solid var(--border);
+  }
+  td { padding: 9px 12px; border-bottom: 1px solid rgba(48,120,200,0.08); }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--bg3); }
+  .td-mono { font-family: var(--mono); font-size: 11px; }
+
+  /* ── Node Grid (overview) ────────────────────────────────────────────────── */
+  .overview-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px;
+  }
+  .overview-node-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px;
+    cursor: pointer; transition: all 0.15s;
+    position: relative; overflow: hidden;
+  }
+  .overview-node-card::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+    width: 3px;
+  }
+  .overview-node-card.online::before { background: var(--ok); }
+  .overview-node-card.offline::before { background: var(--text3); }
+  .overview-node-card.pending::before { background: var(--warn); }
+  .overview-node-card:hover {
+    border-color: var(--border2);
+    transform: translateY(-1px);
+    box-shadow: var(--glow2);
+  }
+  .overview-node-name { font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 4px; }
+  .overview-node-meta { font-size: 11px; color: var(--text2); font-family: var(--mono); }
+  .overview-mini-metrics {
+    display: flex; gap: 12px; margin-top: 12px;
+    padding-top: 12px; border-top: 1px solid var(--border);
+  }
+  .omm { flex: 1; }
+  .omm-lbl { font-size: 9px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.1em; }
+  .omm-val { font-size: 15px; font-weight: 700; font-family: var(--mono); color: #fff; }
+
+  /* ── Alerts Panel ─────────────────────────────────────────────────────────── */
+  .alert-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; border-bottom: 1px solid var(--border);
+  }
+  .alert-row:last-child { border-bottom: none; }
+  .alert-sev {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  }
+  .alert-sev.warning { background: var(--warn); }
+  .alert-sev.critical { background: var(--crit); box-shadow: 0 0 6px var(--crit); }
+  .alert-sev.info { background: var(--accent); }
+  .alert-msg { flex: 1; font-size: 12px; }
+  .alert-node { font-size: 11px; color: var(--text2); font-family: var(--mono); }
+  .alert-time { font-size: 10px; color: var(--text3); }
+
+  /* ── Login ────────────────────────────────────────────────────────────────── */
+  #login-screen {
+    position: fixed; inset: 0; z-index: 1000;
+    background: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .login-box {
+    width: 360px;
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 12px; padding: 36px 32px;
+    box-shadow: 0 0 60px rgba(30,127,255,0.1);
+  }
+  .login-logo {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 28px;
+  }
+  .login-logo-icon {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+  }
+  .login-logo-text { font-size: 20px; font-weight: 700; color: #fff; }
+  .login-subtitle { font-size: 11px; color: var(--text3); margin-bottom: 28px; }
+  .form-group { margin-bottom: 16px; }
+  .form-label { display: block; font-size: 11px; color: var(--text2); margin-bottom: 6px; font-weight: 500; }
+  .form-input {
+    width: 100%; background: var(--bg3); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 10px 14px;
+    font-family: var(--sans); font-size: 13px; color: #fff;
+    outline: none; transition: border-color 0.15s;
+  }
+  .form-input:focus { border-color: var(--accent); }
+  #login-error { color: var(--crit); font-size: 12px; margin-bottom: 12px; min-height: 18px; }
+  #login-btn { width: 100%; justify-content: center; padding: 10px; font-size: 13px; }
+
+  /* ── Logs ───────────────────────────────────────────────────────────────── */
+  .log-entry {
+    display: flex; gap: 10px;
+    padding: 7px 12px; border-bottom: 1px solid rgba(48,120,200,0.06);
+    font-family: var(--mono); font-size: 11px;
+  }
+  .log-time { color: var(--text3); flex-shrink: 0; }
+  .log-action { color: var(--accent2); flex-shrink: 0; min-width: 180px; }
+  .log-detail { color: var(--text); }
+
+  /* ── Spinners / Loading ──────────────────────────────────────────────────── */
+  .loading {
+    display: flex; align-items: center; gap: 8px;
+    color: var(--text2); font-size: 12px;
+    padding: 20px;
+  }
+  .spinner {
+    width: 14px; height: 14px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Modal ──────────────────────────────────────────────────────────────── */
+  .modal-overlay {
+    position: fixed; inset: 0; z-index: 500;
+    background: rgba(7,11,16,0.85); backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .modal-overlay.hidden { display: none; }
+  .modal {
+    background: var(--bg2); border: 1px solid var(--border2);
+    border-radius: 12px; padding: 28px; width: 480px; max-width: 95vw;
+  }
+  .modal-title { font-size: 15px; font-weight: 600; margin-bottom: 16px; color: #fff; }
+
+  /* ── Chart ──────────────────────────────────────────────────────────────── */
+  .sparkline-wrap { position: relative; height: 80px; }
+  canvas { display: block; }
+
+  /* ── Empty state ─────────────────────────────────────────────────────────── */
+  .empty { padding: 40px; text-align: center; color: var(--text3); }
+  .empty-icon { font-size: 32px; margin-bottom: 8px; }
+
+  /* ── Tabs ────────────────────────────────────────────────────────────────── */
+  .tabs {
+    display: flex; gap: 4px;
+    background: var(--bg3); border-radius: var(--radius);
+    padding: 3px; width: fit-content;
+  }
+  .tab {
+    padding: 5px 14px; border-radius: 6px;
+    font-size: 12px; font-weight: 500; cursor: pointer;
+    color: var(--text2); transition: all 0.15s;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { background: var(--bg); color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+
+  /* ── Overview tab specific ─────────────────────────────────────────────── */
+  .section-title {
+    font-size: 10px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.1em; color: var(--text3); margin-bottom: 12px;
+  }
+</style>
+</head>
+<body>
+
+<!-- Login Screen -->
+<div id="login-screen">
+  <div class="login-box">
+    <div class="login-logo">
+      <div class="login-logo-icon">⬡</div>
+      <div class="login-logo-text">PiCommand</div>
+    </div>
+    <div class="login-subtitle">Secure Remote Node Management</div>
+    <div class="form-group">
+      <label class="form-label">Username</label>
+      <input class="form-input" id="login-user" type="text" placeholder="admin" autocomplete="username">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Password</label>
+      <input class="form-input" id="login-pass" type="password" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <div id="login-error"></div>
+    <button class="btn btn-primary" id="login-btn">Sign In</button>
+  </div>
+</div>
+
+<!-- Main App -->
+<div id="topbar">
+  <div class="logo">
+    <div class="logo-icon">⬡</div>
+    PiCommand
+  </div>
+  <div id="global-stats">
+    <div class="gstat">
+      <span class="gstat-val" id="stat-online">—</span>
+      <span class="gstat-lbl">Online</span>
+    </div>
+    <div class="gstat">
+      <span class="gstat-val" id="stat-total">—</span>
+      <span class="gstat-lbl">Nodes</span>
+    </div>
+    <div class="gstat">
+      <span class="gstat-val" id="stat-alerts">—</span>
+      <span class="gstat-lbl">Alerts</span>
+    </div>
+  </div>
+  <div class="topbar-sep"></div>
+  <div id="alert-badge" class="hidden">⚠ <span id="alert-count">0</span> Active</div>
+  <div class="status-dot" id="ws-dot" title="Server connection"></div>
+  <div class="topbar-user" id="topbar-user">
+    <span id="username-display">—</span>
+    <span style="color:var(--text3)">▾</span>
+  </div>
+</div>
+
+<div id="layout">
+  <!-- Sidebar -->
+  <div id="sidebar">
+    <div class="sidebar-section">Navigation</div>
+    <div class="node-item" id="nav-overview" onclick="showOverview()">
+      <div class="node-status-dot online" style="background:var(--accent);box-shadow:none;"></div>
+      <span class="node-name">Overview</span>
+    </div>
+    <div class="node-item" id="nav-alerts" onclick="showAlertsView()">
+      <div class="node-status-dot" style="background:var(--warn);box-shadow:none;"></div>
+      <span class="node-name">Alerts</span>
+    </div>
+    <div class="node-item" id="nav-audit" onclick="showAuditView()">
+      <div class="node-status-dot" style="background:var(--text3);box-shadow:none;"></div>
+      <span class="node-name">Audit Log</span>
+    </div>
+    <div class="node-item" id="nav-users" onclick="showUsersView()">
+      <div class="node-status-dot" style="background:var(--text3);box-shadow:none;"></div>
+      <span class="node-name">Users</span>
+    </div>
+    <div class="sidebar-section" style="margin-top:8px">Nodes</div>
+    <div id="node-list"></div>
+  </div>
+
+  <!-- Main content -->
+  <div id="main">
+    <!-- Overview View -->
+    <div class="view active" id="view-overview">
+      <div class="section-title">Fleet Status</div>
+      <div class="overview-grid" id="overview-grid">
+        <div class="loading"><div class="spinner"></div> Loading nodes…</div>
+      </div>
+    </div>
+
+    <!-- Node Detail View -->
+    <div class="view" id="view-node">
+      <!-- Node header -->
+      <div id="node-header">
+        <div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span class="node-title" id="nh-name">—</span>
+            <span class="badge" id="nh-badge">—</span>
+          </div>
+          <div class="node-subtitle" id="nh-sub">—</div>
+        </div>
+        <div class="node-actions">
+          <button class="btn btn-ghost btn-sm" onclick="refreshNode()">↻ Refresh</button>
+          <button class="btn btn-warn btn-sm" id="btn-reboot" onclick="rebootNode()">⏻ Reboot</button>
+        </div>
+      </div>
+
+      <!-- Metric cards -->
+      <div class="metric-grid" id="metric-grid">
+        <div class="metric-card">
+          <div class="metric-label">CPU</div>
+          <div class="metric-value" id="m-cpu">—<span class="metric-unit">%</span></div>
+          <div class="metric-bar"><div class="metric-bar-fill" id="mbar-cpu" style="width:0%"></div></div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">RAM</div>
+          <div class="metric-value" id="m-ram">—<span class="metric-unit">%</span></div>
+          <div class="metric-bar"><div class="metric-bar-fill" id="mbar-ram" style="width:0%"></div></div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Disk</div>
+          <div class="metric-value" id="m-disk">—<span class="metric-unit">%</span></div>
+          <div class="metric-bar"><div class="metric-bar-fill" id="mbar-disk" style="width:0%"></div></div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Temperature</div>
+          <div class="metric-value" id="m-temp">—<span class="metric-unit">°C</span></div>
+          <div class="metric-bar"><div class="metric-bar-fill" id="mbar-temp" style="width:0%;background:var(--warn)"></div></div>
+        </div>
+      </div>
+
+      <!-- Charts + Terminal -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">CPU & RAM History</span>
+            <span style="margin-left:auto;font-size:10px;color:var(--text3)">last 60 readings</span>
+          </div>
+          <div class="card-body" style="padding-bottom:12px">
+            <canvas id="chart-cpu-ram" height="80"></canvas>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">System Info</span>
+          </div>
+          <div class="card-body">
+            <table>
+              <tbody id="sysinfo-table"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Terminal -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Remote Terminal</span>
+          <div style="margin-left:auto;display:flex;gap:6px">
+            <button class="btn btn-ghost btn-sm" onclick="quickCmd('sudo apt update')">apt update</button>
+            <button class="btn btn-ghost btn-sm" onclick="quickCmd('df -h')">disk usage</button>
+            <button class="btn btn-ghost btn-sm" onclick="quickCmd('journalctl -n 50 --no-pager')">logs</button>
+            <button class="btn btn-ghost btn-sm" onclick="clearTerm()">clear</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div id="terminal-output"></div>
+          <div id="terminal-input-row">
+            <span style="color:var(--accent2);font-family:var(--mono);font-size:12px;padding:9px 0;white-space:nowrap">$ </span>
+            <input class="form-input" id="terminal-input" type="text" placeholder="Enter command…" autocomplete="off">
+            <button class="btn btn-primary" id="btn-run" onclick="runCommand()">Run</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Command History + Services -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div class="card">
+          <div class="card-header"><span class="card-title">Command History</span></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Command</th><th>Status</th><th>Time</th></tr></thead>
+              <tbody id="cmd-history"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Services</span></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Service</th><th>Active</th><th>Enabled</th></tr></thead>
+              <tbody id="services-table"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Alerts View -->
+    <div class="view" id="view-alerts">
+      <div class="section-title">Active Alerts</div>
+      <div class="card">
+        <div id="alerts-list"><div class="loading"><div class="spinner"></div> Loading…</div></div>
+      </div>
+    </div>
+
+    <!-- Audit Log View -->
+    <div class="view" id="view-audit">
+      <div class="section-title">Audit Log</div>
+      <div class="card">
+        <div id="audit-list"><div class="loading"><div class="spinner"></div> Loading…</div></div>
+      </div>
+    </div>
+
+    <!-- Users View -->
+    <div class="view" id="view-users">
+      <div class="section-title">User Management</div>
+      <div class="card">
+        <div class="card-header" style="justify-content:space-between">
+          <span class="card-title">Users</span>
+          <button class="btn btn-primary btn-sm" onclick="openAddUser()">+ Add User</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Last Login</th><th>Actions</th></tr></thead>
+            <tbody id="users-table"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card" style="margin-top:0">
+        <div class="card-header"><span class="card-title">Change My Password</span></div>
+        <div class="card-body" style="display:flex;flex-direction:column;gap:10px;max-width:400px">
+          <input class="form-input" id="pw-old" type="password" placeholder="Current password">
+          <input class="form-input" id="pw-new" type="password" placeholder="New password (min 8 chars)">
+          <input class="form-input" id="pw-confirm" type="password" placeholder="Confirm new password">
+          <div id="pw-msg" style="font-size:12px;min-height:18px"></div>
+          <button class="btn btn-ghost btn-sm" onclick="changePassword()" style="width:fit-content">Update Password</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add User Modal -->
+<div class="modal-overlay hidden" id="add-user-modal">
+  <div class="modal">
+    <div class="modal-title">Add User</div>
+    <div class="form-group">
+      <label class="form-label">Username</label>
+      <input class="form-input" id="add-user-username" placeholder="username">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Password</label>
+      <input class="form-input" id="add-user-password" type="password" placeholder="min 8 characters">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Email (optional)</label>
+      <input class="form-input" id="add-user-email" type="email" placeholder="user@example.com">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Role</label>
+      <select class="form-input" id="add-user-role">
+        <option value="viewer">Viewer — read-only</option>
+        <option value="operator" selected>Operator — run commands</option>
+        <option value="admin">Admin — full access</option>
+      </select>
+    </div>
+    <div id="add-user-err" style="color:var(--crit);font-size:12px;min-height:16px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button class="btn btn-ghost" onclick="closeAddUser()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitAddUser()">Create User</button>
+    </div>
+  </div>
+</div>
+
+<!-- Register Node Modal -->
+<div class="modal-overlay hidden" id="register-modal">
+  <div class="modal">
+    <div class="modal-title">Register New Node</div>
+    <div class="form-group">
+      <label class="form-label">Node ID (slug)</label>
+      <input class="form-input" id="reg-node-id" placeholder="garage-pi">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Display Name</label>
+      <input class="form-input" id="reg-name" placeholder="Garage Raspberry Pi">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Public Key (PEM)</label>
+      <textarea class="form-input" id="reg-pubkey" rows="5" placeholder="-----BEGIN PUBLIC KEY-----"></textarea>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Location</label>
+      <input class="form-input" id="reg-location" placeholder="Garage">
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button class="btn btn-ghost" onclick="closeRegister()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitRegister()">Register</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════════════════════
+// State
+// ════════════════════════════════════════════════════════════════════════════
+const API = '';  // same origin
+let token = localStorage.getItem('picommand_token') || '';
+let currentUser = null;
+let nodes = {};
+let currentNodeId = null;
+let chartHistory = {};  // node_id -> {cpu:[], ram:[], times:[]}
+let cpuRamChart = null;
+let eventSource = null;
+let statsInterval = null;
+
+// ════════════════════════════════════════════════════════════════════════════
+// Utility
+// ════════════════════════════════════════════════════════════════════════════
+async function api(method, path, body = null) {
+  const opts = {
+    method,
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+  };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(API + path, opts);
+  if (r.status === 401) { logout(); return null; }
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({ detail: r.statusText }));
+    throw new Error(err.detail || r.statusText);
+  }
+  return r.json().catch(() => null);
+}
+
+function fmtTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+function fmtUptime(sec) {
+  if (!sec) return '—';
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (d) return `${d}d ${h}h ${m}m`;
+  if (h) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+function barColor(v) {
+  if (v >= 90) return 'var(--crit)';
+  if (v >= 70) return 'var(--warn)';
+  return 'var(--ok)';
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Auth
+// ════════════════════════════════════════════════════════════════════════════
+async function login() {
+  const u = document.getElementById('login-user').value.trim();
+  const p = document.getElementById('login-pass').value;
+  document.getElementById('login-error').textContent = '';
+  if (!u || !p) { document.getElementById('login-error').textContent = 'Enter credentials'; return; }
+
+  try {
+    const fd = new URLSearchParams({ username: u, password: p });
+    const r = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: fd
+    });
+    if (!r.ok) throw new Error((await r.json()).detail || 'Login failed');
+    const data = await r.json();
+    token = data.access_token;
+    localStorage.setItem('picommand_token', token);
+    document.getElementById('login-screen').style.display = 'none';
+    await init();
+  } catch (e) {
+    document.getElementById('login-error').textContent = e.message;
+  }
+}
+
+function logout() {
+  token = '';
+  localStorage.removeItem('picommand_token');
+  location.reload();
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Init
+// ════════════════════════════════════════════════════════════════════════════
+async function init() {
+  const me = await api('GET', '/api/auth/me');
+  if (!me) return;
+  currentUser = me;
+  document.getElementById('username-display').textContent = me.username;
+
+  await loadNodes();
+  await updateStats();
+  startSSE();
+  statsInterval = setInterval(updateStats, 10000);
+
+  showOverview();
+}
+
+async function loadNodes() {
+  const data = await api('GET', '/api/nodes');
+  if (!data) return;
+  nodes = {};
+  data.forEach(n => { nodes[n.node_id] = n; });
+  renderSidebar();
+  return data;
+}
+
+async function updateStats() {
+  const s = await api('GET', '/api/stats');
+  if (!s) return;
+  document.getElementById('stat-online').textContent = s.nodes_online;
+  document.getElementById('stat-total').textContent = s.nodes_total;
+  document.getElementById('stat-alerts').textContent = s.alerts_active;
+  const badge = document.getElementById('alert-badge');
+  document.getElementById('alert-count').textContent = s.alerts_active;
+  badge.classList.toggle('hidden', s.alerts_active === 0);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// SSE — real-time events
+// ════════════════════════════════════════════════════════════════════════════
+function startSSE() {
+  if (eventSource) { eventSource.close(); }
+  // Use fetch-based polling as fallback since SSE needs auth header
+  // Real deployment would use EventSource with a session cookie or query token
+  setInterval(async () => {
+    await loadNodes();
+    if (currentNodeId) await refreshNodeMetrics();
+  }, 15000);
+
+  const dot = document.getElementById('ws-dot');
+  dot.style.background = 'var(--ok)';
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Sidebar
+// ════════════════════════════════════════════════════════════════════════════
+function renderSidebar() {
+  const list = document.getElementById('node-list');
+  const nodeArr = Object.values(nodes).sort((a, b) => a.display_name.localeCompare(b.display_name));
+
+  if (!nodeArr.length) {
+    list.innerHTML = '<div style="padding:12px 14px;color:var(--text3);font-size:11px">No nodes registered</div>';
+    return;
+  }
+
+  list.innerHTML = nodeArr.map(n => `
+    <div class="node-item ${n.node_id === currentNodeId ? 'active' : ''}"
+         id="sidebar-node-${n.node_id}"
+         onclick="showNode('${n.node_id}')">
+      <div class="node-status-dot ${n.is_online ? 'online' : n.status}"></div>
+      <span class="node-name">${n.display_name}</span>
+      ${n.location ? `<span class="node-location">${n.location}</span>` : ''}
+    </div>
+  `).join('');
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Views
+// ════════════════════════════════════════════════════════════════════════════
+function setView(id) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById('view-' + id).classList.add('active');
+  // Sidebar nav highlight
+  document.querySelectorAll('.node-item[id^="nav-"]').forEach(el => el.classList.remove('active'));
+}
+
+async function showOverview() {
+  setView('overview');
+  currentNodeId = null;
+  document.getElementById('nav-overview').classList.add('active');
+  renderSidebar();
+  await renderOverviewGrid();
+}
+
+async function renderOverviewGrid() {
+  const grid = document.getElementById('overview-grid');
+  const nodeArr = Object.values(nodes);
+  if (!nodeArr.length) {
+    grid.innerHTML = `<div class="empty"><div class="empty-icon">🔌</div><div>No nodes registered</div><div style="margin-top:12px"><button class="btn btn-primary" onclick="openRegister()">+ Register Node</button></div></div>`;
+    return;
+  }
+
+  // Fetch latest metrics for all nodes
+  const metricsMap = {};
+  await Promise.allSettled(nodeArr.filter(n => n.is_online).map(async n => {
+    const m = await api('GET', `/api/nodes/${n.node_id}/metrics/latest`);
+    if (m) metricsMap[n.node_id] = m;
+  }));
+
+  grid.innerHTML = nodeArr.map(n => {
+    const m = metricsMap[n.node_id] || {};
+    const st = n.is_online ? 'online' : n.status;
+    return `
+      <div class="overview-node-card ${st}" onclick="showNode('${n.node_id}')">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+          <span class="overview-node-name">${n.display_name}</span>
+          <span class="badge ${st}">${st}</span>
+        </div>
+        <div class="overview-node-meta">${n.hostname || n.node_id}${n.location ? ' · ' + n.location : ''}</div>
+        ${n.pi_model ? `<div style="font-size:10px;color:var(--text3);margin-top:2px">${n.pi_model}</div>` : ''}
+        <div class="overview-mini-metrics">
+          <div class="omm">
+            <div class="omm-lbl">CPU</div>
+            <div class="omm-val" style="color:${barColor(m.cpu_percent||0)}">${n.is_online && m.cpu_percent != null ? m.cpu_percent.toFixed(0) + '%' : '—'}</div>
+          </div>
+          <div class="omm">
+            <div class="omm-lbl">RAM</div>
+            <div class="omm-val" style="color:${barColor(m.ram_percent||0)}">${n.is_online && m.ram_percent != null ? m.ram_percent.toFixed(0) + '%' : '—'}</div>
+          </div>
+          <div class="omm">
+            <div class="omm-lbl">Temp</div>
+            <div class="omm-val">${n.is_online && m.cpu_temp_c != null ? m.cpu_temp_c.toFixed(0) + '°C' : '—'}</div>
+          </div>
+          <div class="omm">
+            <div class="omm-lbl">Uptime</div>
+            <div class="omm-val" style="font-size:11px">${n.is_online && m.uptime_seconds ? fmtUptime(m.uptime_seconds) : '—'}</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function showNode(nodeId) {
+  currentNodeId = nodeId;
+  setView('node');
+  renderSidebar();
+
+  const node = nodes[nodeId];
+  if (!node) return;
+
+  // Header
+  document.getElementById('nh-name').textContent = node.display_name;
+  const badge = document.getElementById('nh-badge');
+  badge.textContent = node.is_online ? 'Online' : node.status;
+  badge.className = `badge ${node.is_online ? 'online' : node.status}`;
+  document.getElementById('nh-sub').textContent =
+    [node.node_id, node.hostname, node.os_version, node.arch].filter(Boolean).join(' · ');
+  document.getElementById('btn-reboot').disabled = !node.is_online;
+
+  // Sysinfo
+  renderSysinfo(node);
+  initChart();
+  await refreshNodeMetrics();
+  await loadCommandHistory();
+  loadServices(nodeId);
+}
+
+function renderSysinfo(node) {
+  const rows = [
+    ['Node ID', node.node_id],
+    ['Hostname', node.hostname || '—'],
+    ['OS', node.os_version || '—'],
+    ['Arch', node.arch || '—'],
+    ['Model', node.pi_model || '—'],
+    ['IP', node.ip_address || '—'],
+    ['Location', node.location || '—'],
+    ['SSH Port', node.ssh_tunnel_port ? `:${node.ssh_tunnel_port}` : '—'],
+    ['Last Seen', node.last_seen ? fmtDate(node.last_seen) : '—'],
+    ['Tags', (node.tags || []).join(', ') || '—'],
+  ];
+  document.getElementById('sysinfo-table').innerHTML = rows.map(([k, v]) =>
+    `<tr><td style="color:var(--text3);font-size:11px;width:40%">${k}</td><td class="td-mono">${v}</td></tr>`
+  ).join('');
+}
+
+async function refreshNodeMetrics() {
+  if (!currentNodeId) return;
+  const m = await api('GET', `/api/nodes/${currentNodeId}/metrics/latest`);
+  if (!m || !Object.keys(m).length) return;
+
+  const setM = (id, v, unit = '') => {
+    const el = document.getElementById(id);
+    if (el && v != null) el.innerHTML = v + `<span class="metric-unit">${unit}</span>`;
+  };
+  const setBar = (id, v, color = null) => {
+    const el = document.getElementById(id);
+    if (el && v != null) {
+      el.style.width = Math.min(100, v) + '%';
+      el.style.background = color || barColor(v);
+    }
+  };
+
+  setM('m-cpu', m.cpu_percent?.toFixed(1), '%');
+  setM('m-ram', m.ram_percent?.toFixed(1), '%');
+  setM('m-disk', m.disk_percent?.toFixed(1), '%');
+  setM('m-temp', m.cpu_temp_c?.toFixed(1), '°C');
+  setBar('mbar-cpu', m.cpu_percent);
+  setBar('mbar-ram', m.ram_percent);
+  setBar('mbar-disk', m.disk_percent);
+  setBar('mbar-temp', m.cpu_temp_c ? (m.cpu_temp_c / 85 * 100) : 0, m.cpu_temp_c >= 70 ? 'var(--crit)' : 'var(--warn)');
+
+  // History for chart
+  const key = currentNodeId;
+  if (!chartHistory[key]) chartHistory[key] = { cpu: [], ram: [], times: [] };
+  const h = chartHistory[key];
+  h.cpu.push(m.cpu_percent || 0);
+  h.ram.push(m.ram_percent || 0);
+  h.times.push(fmtTime(m.recorded_at));
+  if (h.cpu.length > 60) { h.cpu.shift(); h.ram.shift(); h.times.shift(); }
+  updateChart();
+}
+
+function refreshNode() {
+  if (currentNodeId) showNode(currentNodeId);
+}
+
+async function refreshNodeFull() {
+  await loadNodes();
+  if (currentNodeId) await showNode(currentNodeId);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Chart
+// ════════════════════════════════════════════════════════════════════════════
+function initChart() {
+  const canvas = document.getElementById('chart-cpu-ram');
+  if (!canvas) return;
+  if (cpuRamChart) { cpuRamChart = null; }
+  canvas._ctx = canvas.getContext('2d');
+}
+
+function updateChart() {
+  const canvas = document.getElementById('chart-cpu-ram');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const h = chartHistory[currentNodeId];
+  if (!h || !h.cpu.length) return;
+
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.offsetWidth;
+  const H = 80;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  ctx.scale(dpr, dpr);
+
+  ctx.clearRect(0, 0, W, H);
+
+  const drawLine = (data, color) => {
+    if (!data.length) return;
+    const step = W / Math.max(data.length - 1, 1);
+    ctx.beginPath();
+    data.forEach((v, i) => {
+      const x = i * step;
+      const y = H - (v / 100) * H;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Fill under
+    ctx.lineTo((data.length - 1) * step, H);
+    ctx.lineTo(0, H);
+    ctx.closePath();
+    ctx.fillStyle = color.replace(')', ',0.08)').replace('rgb', 'rgba');
+    ctx.fill();
+  };
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(48,120,200,0.1)';
+  ctx.lineWidth = 1;
+  [25, 50, 75].forEach(pct => {
+    const y = H - (pct / 100) * H;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    ctx.fillStyle = 'rgba(107,138,170,0.5)';
+    ctx.font = '8px JetBrains Mono';
+    ctx.fillText(pct + '%', 4, y - 2);
+  });
+
+  drawLine(h.ram, 'rgb(0,212,170)');
+  drawLine(h.cpu, 'rgb(30,127,255)');
+
+  // Legend
+  ctx.font = '9px Space Grotesk';
+  ctx.fillStyle = 'rgb(30,127,255)'; ctx.fillText('CPU', W - 50, 12);
+  ctx.fillStyle = 'rgb(0,212,170)'; ctx.fillText('RAM', W - 28, 12);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Terminal
+// ════════════════════════════════════════════════════════════════════════════
+const term = () => document.getElementById('terminal-output');
+
+function termAppend(html) {
+  const t = term();
+  t.innerHTML += html;
+  t.scrollTop = t.scrollHeight;
+}
+
+function clearTerm() { term().innerHTML = ''; }
+
+function quickCmd(cmd) {
+  document.getElementById('terminal-input').value = cmd;
+  runCommand();
+}
+
+async function runCommand() {
+  const input = document.getElementById('terminal-input');
+  const cmd = input.value.trim();
+  if (!cmd || !currentNodeId) return;
+  input.value = '';
+  input.disabled = true;
+  document.getElementById('btn-run').disabled = true;
+
+  termAppend(`<div><span class="term-prompt">${nodes[currentNodeId]?.hostname || currentNodeId} $</span> <span class="term-cmd">${escHtml(cmd)}</span></div>`);
+
+  try {
+    const result = await api('POST', `/api/nodes/${currentNodeId}/commands`, { command: cmd, timeout: 30 });
+    if (!result) throw new Error('No response');
+
+    if (result.stdout) {
+      termAppend(`<div class="term-out">${escHtml(result.stdout)}</div>`);
+    }
+    if (result.stderr) {
+      termAppend(`<div class="term-err">${escHtml(result.stderr)}</div>`);
+    }
+    if (result.exit_code === 0) {
+      termAppend(`<div class="term-info" style="color:var(--text3)">exit 0</div>`);
+    } else {
+      termAppend(`<div class="term-err">exit ${result.exit_code}</div>`);
+    }
+  } catch (e) {
+    termAppend(`<div class="term-err">Error: ${escHtml(e.message)}</div>`);
+  }
+
+  input.disabled = false;
+  document.getElementById('btn-run').disabled = false;
+  input.focus();
+  await loadCommandHistory();
+}
+
+document.addEventListener('keydown', e => {
+  const input = document.getElementById('terminal-input');
+  if (e.key === 'Enter' && document.activeElement === input) runCommand();
+});
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>');
+}
+
+async function rebootNode() {
+  if (!currentNodeId) return;
+  if (!confirm(`Reboot ${nodes[currentNodeId]?.display_name}?`)) return;
+  termAppend(`<div class="term-info">⚠ Initiating reboot…</div>`);
+  try {
+    await api('POST', `/api/nodes/${currentNodeId}/commands`, { command: 'sudo reboot', timeout: 10 });
+  } catch (e) { /* expected disconnect */ }
+  termAppend(`<div class="term-ok">Reboot command sent</div>`);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Command History
+// ════════════════════════════════════════════════════════════════════════════
+async function loadCommandHistory() {
+  if (!currentNodeId) return;
+  const cmds = await api('GET', `/api/nodes/${currentNodeId}/commands?limit=20`);
+  if (!cmds) return;
+  const tbody = document.getElementById('cmd-history');
+  if (!cmds.length) {
+    tbody.innerHTML = '<tr><td colspan="3" style="color:var(--text3);text-align:center;padding:20px">No commands yet</td></tr>';
+    return;
+  }
+  tbody.innerHTML = cmds.map(c => `
+    <tr>
+      <td class="td-mono" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+          title="${escHtml(c.command)}">${escHtml(c.command.substring(0, 40))}${c.command.length > 40 ? '…' : ''}</td>
+      <td><span class="badge ${c.status === 'completed' ? 'online' : c.status === 'failed' ? 'offline' : 'pending'}">${c.status}</span></td>
+      <td style="color:var(--text3);font-size:11px">${fmtTime(c.created_at)}</td>
+    </tr>
+  `).join('');
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Services
+// ════════════════════════════════════════════════════════════════════════════
+async function loadServices(nodeId) {
+  const node = nodes[nodeId];
+  const tbody = document.getElementById('services-table');
+  if (!node || !node.is_online) {
+    tbody.innerHTML = '<tr><td colspan="3" style="color:var(--text3);text-align:center;padding:20px">Node offline</td></tr>';
+    return;
+  }
+  try {
+    const svcs = await api('GET', `/api/nodes/${nodeId}/services`);
+    if (!svcs || !svcs.length) {
+      tbody.innerHTML = '<tr><td colspan="3" style="color:var(--text3);text-align:center;padding:16px">No services tracked yet — waiting for node push</td></tr>';
+      return;
+    }
+    tbody.innerHTML = svcs.map(s => `
+      <tr>
+        <td>${escHtml(s.name)}</td>
+        <td><span class="badge ${s.active ? 'online' : 'offline'}">${s.active ? 'active' : 'inactive'}</span></td>
+        <td><span style="color:var(--text2);font-size:11px">${s.enabled ? 'enabled' : 'disabled'}</span></td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="3" style="color:var(--crit);text-align:center;padding:16px">${escHtml(e.message)}</td></tr>`;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Users View
+// ════════════════════════════════════════════════════════════════════════════
+async function showUsersView() {
+  setView('users');
+  currentNodeId = null;
+  document.getElementById('nav-users').classList.add('active');
+  renderSidebar();
+  await loadUsers();
+}
+
+async function loadUsers() {
+  const tbody = document.getElementById('users-table');
+  try {
+    const users = await api('GET', '/api/users');
+    if (!users) return;
+    tbody.innerHTML = users.map(u => `
+      <tr>
+        <td style="font-weight:500">${escHtml(u.username)}</td>
+        <td><span class="badge ${u.role === 'admin' ? 'online' : u.role === 'operator' ? 'pending' : 'offline'}">${u.role}</span></td>
+        <td><span class="badge ${u.is_active ? 'online' : 'offline'}">${u.is_active ? 'active' : 'disabled'}</span></td>
+        <td style="color:var(--text3);font-size:11px">${fmtDate(u.last_login)}</td>
+        <td>
+          <button class="btn btn-ghost btn-sm" onclick="toggleUserActive('${u.id}', ${!u.is_active})">
+            ${u.is_active ? 'Disable' : 'Enable'}
+          </button>
+          ${u.username !== currentUser.username ? `
+            <button class="btn btn-danger btn-sm" onclick="deleteUser('${u.id}', '${escHtml(u.username)}')">Delete</button>
+          ` : ''}
+        </td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="5" style="color:var(--crit);text-align:center;padding:20px">${escHtml(e.message)}</td></tr>`;
+  }
+}
+
+function openAddUser() {
+  document.getElementById('add-user-modal').classList.remove('hidden');
+  document.getElementById('add-user-err').textContent = '';
+}
+function closeAddUser() {
+  document.getElementById('add-user-modal').classList.add('hidden');
+}
+
+async function submitAddUser() {
+  const username = document.getElementById('add-user-username').value.trim();
+  const password = document.getElementById('add-user-password').value;
+  const email = document.getElementById('add-user-email').value.trim();
+  const role = document.getElementById('add-user-role').value;
+
+  if (!username || !password) {
+    document.getElementById('add-user-err').textContent = 'Username and password are required';
+    return;
+  }
+  try {
+    await api('POST', '/api/users', { username, password, email: email || null, role });
+    closeAddUser();
+    await loadUsers();
+  } catch (e) {
+    document.getElementById('add-user-err').textContent = e.message;
+  }
+}
+
+async function toggleUserActive(userId, active) {
+  try {
+    await api('PATCH', `/api/users/${userId}`, { is_active: active });
+    await loadUsers();
+  } catch (e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+async function deleteUser(userId, username) {
+  if (!confirm(`Delete user "${username}"? This cannot be undone.`)) return;
+  try {
+    await api('DELETE', `/api/users/${userId}`);
+    await loadUsers();
+  } catch (e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+async function changePassword() {
+  const oldPw = document.getElementById('pw-old').value;
+  const newPw = document.getElementById('pw-new').value;
+  const confirmPw = document.getElementById('pw-confirm').value;
+  const msgEl = document.getElementById('pw-msg');
+
+  if (newPw !== confirmPw) {
+    msgEl.style.color = 'var(--crit)';
+    msgEl.textContent = 'Passwords do not match';
+    return;
+  }
+  if (newPw.length < 8) {
+    msgEl.style.color = 'var(--crit)';
+    msgEl.textContent = 'Password must be at least 8 characters';
+    return;
+  }
+  try {
+    await api('POST', '/api/auth/change-password', { old_password: oldPw, new_password: newPw });
+    msgEl.style.color = 'var(--ok)';
+    msgEl.textContent = 'Password updated successfully';
+    document.getElementById('pw-old').value = '';
+    document.getElementById('pw-new').value = '';
+    document.getElementById('pw-confirm').value = '';
+  } catch (e) {
+    msgEl.style.color = 'var(--crit)';
+    msgEl.textContent = e.message;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Alerts View
+// ════════════════════════════════════════════════════════════════════════════
+async function showAlertsView() {
+  setView('alerts');
+  currentNodeId = null;
+  document.getElementById('nav-alerts').classList.add('active');
+  renderSidebar();
+  await loadAlerts();
+}
+
+async function loadAlerts() {
+  const alerts = await api('GET', '/api/alerts?unresolved_only=true&limit=100');
+  const container = document.getElementById('alerts-list');
+  if (!alerts || !alerts.length) {
+    container.innerHTML = '<div class="empty"><div class="empty-icon">✅</div><div>No active alerts</div></div>';
+    return;
+  }
+  container.innerHTML = alerts.map(a => {
+    const node = Object.values(nodes).find(n => n.id === a.node_id || n.node_id === a.node_id);
+    return `
+      <div class="alert-row">
+        <div class="alert-sev ${a.severity}"></div>
+        <div>
+          <div class="alert-msg">${escHtml(a.message)}</div>
+          <div class="alert-node">${node?.display_name || a.node_id}</div>
+        </div>
+        <div style="margin-left:auto;text-align:right">
+          <div class="alert-time">${fmtDate(a.fired_at)}</div>
+          <button class="btn btn-ghost btn-sm" style="margin-top:4px"
+            onclick="ackAlert('${a.id}')">Ack</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function ackAlert(id) {
+  await api('POST', `/api/alerts/${id}/acknowledge`);
+  await loadAlerts();
+  await updateStats();
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Audit View
+// ════════════════════════════════════════════════════════════════════════════
+async function showAuditView() {
+  setView('audit');
+  currentNodeId = null;
+  document.getElementById('nav-audit').classList.add('active');
+  renderSidebar();
+
+  const logs = await api('GET', '/api/commands-log').catch(() => null);
+  const container = document.getElementById('audit-list');
+
+  // Show command history across all nodes as audit log
+  const cmdsAll = await Promise.allSettled(
+    Object.keys(nodes).slice(0, 10).map(nid =>
+      api('GET', `/api/nodes/${nid}/commands?limit=10`)
+    )
+  );
+
+  const allCmds = [];
+  cmdsAll.forEach((r, i) => {
+    if (r.status === 'fulfilled' && r.value) {
+      const nid = Object.keys(nodes)[i];
+      r.value.forEach(c => allCmds.push({ ...c, _node: nodes[nid]?.display_name || nid }));
+    }
+  });
+  allCmds.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+  if (!allCmds.length) {
+    container.innerHTML = '<div class="empty"><div class="empty-icon">📋</div><div>No commands logged</div></div>';
+    return;
+  }
+
+  container.innerHTML = allCmds.slice(0, 50).map(c => `
+    <div class="log-entry">
+      <span class="log-time">${fmtDate(c.created_at)}</span>
+      <span class="log-action">${escHtml(c._node)}</span>
+      <span class="log-detail">${escHtml(c.command.substring(0, 100))}</span>
+      <span class="badge ${c.status === 'completed' ? 'online' : 'offline'}" style="margin-left:auto">${c.status}</span>
+    </div>
+  `).join('');
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Register Node Modal
+// ════════════════════════════════════════════════════════════════════════════
+function openRegister() {
+  document.getElementById('register-modal').classList.remove('hidden');
+}
+function closeRegister() {
+  document.getElementById('register-modal').classList.add('hidden');
+}
+
+async function submitRegister() {
+  const body = {
+    node_id: document.getElementById('reg-node-id').value.trim(),
+    display_name: document.getElementById('reg-name').value.trim(),
+    public_key: document.getElementById('reg-pubkey').value.trim(),
+    location: document.getElementById('reg-location').value.trim(),
+  };
+  if (!body.node_id || !body.display_name || !body.public_key) {
+    alert('Node ID, Display Name, and Public Key are required');
+    return;
+  }
+  try {
+    await api('POST', '/api/nodes', body);
+    closeRegister();
+    await loadNodes();
+    showOverview();
+  } catch (e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Boot
+// ════════════════════════════════════════════════════════════════════════════
+document.getElementById('login-btn').addEventListener('click', login);
+document.getElementById('login-pass').addEventListener('keydown', e => {
+  if (e.key === 'Enter') login();
+});
+document.getElementById('topbar-user').addEventListener('click', () => {
+  const opts = ['Change Password', 'Log Out'];
+  const choice = window.confirm('Log out of PiCommand?') ? 'logout' : null;
+  if (choice === 'logout') logout();
+});
+
+// Add register button to sidebar
+document.getElementById('node-list').insertAdjacentHTML('beforebegin', `
+  <div style="padding:8px 14px">
+    <button class="btn btn-primary btn-sm" style="width:100%;justify-content:center"
+      onclick="openRegister()">+ Register Node</button>
+  </div>
+`);
+
+if (token) {
+  document.getElementById('login-screen').style.display = 'none';
+  init();
+}
+</script>
+</body>
+</html>
