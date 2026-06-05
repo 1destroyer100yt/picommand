@@ -60,10 +60,15 @@ app.include_router(api_router)
 # Serve the dashboard SPA
 static_dir = Path(__file__).parent / "static"
 if static_dir.exists():
-    app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="assets")
+    # assets dir mounted only if present
+    if (static_dir / "assets").exists():
+        app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="assets")
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):
+        if full_path.startswith("ws/") or full_path.startswith("api/"):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404)
         index = static_dir / "index.html"
         if index.exists():
             return FileResponse(str(index))

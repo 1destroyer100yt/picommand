@@ -61,7 +61,7 @@ class User(Base):
     username = Column(String(64), unique=True, nullable=False)
     email = Column(String(255), unique=True, nullable=False)
     password_hash = Column(Text, nullable=False)
-    role = Column(Enum(UserRole), nullable=False, default=UserRole.viewer)
+    role = Column(Enum(UserRole, name='user_role'), nullable=False, default=UserRole.viewer)
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
     last_login = Column(DateTime(timezone=True))
@@ -91,7 +91,7 @@ class Node(Base):
     display_name = Column(String(128), nullable=False)
     description = Column(Text)
     public_key = Column(Text, nullable=False)
-    status = Column(Enum(NodeStatus), nullable=False, default=NodeStatus.pending)
+    status = Column(Enum(NodeStatus, name='node_status'), nullable=False, default=NodeStatus.pending)
     tags = Column(ARRAY(String), default=[])
     location = Column(String(255))
     created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
@@ -160,7 +160,7 @@ class Command(Base):
     node_id = Column(UUID(as_uuid=True), ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False)
     issued_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     command = Column(Text, nullable=False)
-    status = Column(Enum(CommandStatus), nullable=False, default=CommandStatus.pending)
+    status = Column(Enum(CommandStatus, name='command_status'), nullable=False, default=CommandStatus.pending)
     created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
     started_at = Column(DateTime(timezone=True))
     completed_at = Column(DateTime(timezone=True))
@@ -193,7 +193,7 @@ class Alert(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     node_id = Column(UUID(as_uuid=True), ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False)
-    severity = Column(Enum(AlertSeverity), nullable=False)
+    severity = Column(Enum(AlertSeverity, name='alert_severity'), nullable=False)
     message = Column(Text, nullable=False)
     metric = Column(String(64))
     metric_value = Column(Float)
@@ -213,9 +213,40 @@ class Deployment(Base):
     initiated_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     package_name = Column(String(255), nullable=False)
     script = Column(Text, nullable=False)
-    status = Column(Enum(DeployStatus), nullable=False, default=DeployStatus.pending)
+    status = Column(Enum(DeployStatus, name='deploy_status'), nullable=False, default=DeployStatus.pending)
     created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
     completed_at = Column(DateTime(timezone=True))
     output = Column(Text)
 
     node = relationship("Node", back_populates="deployments")
+
+
+class FileTransfer(Base):
+    __tablename__ = "file_transfers"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    node_id = Column(UUID(as_uuid=True), ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False)
+    initiated_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    direction = Column(String(16), nullable=False)
+    remote_path = Column(Text, nullable=False)
+    file_size_bytes = Column(BigInteger)
+    status = Column(String(32), nullable=False, default="pending")
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    completed_at = Column(DateTime(timezone=True))
+    error = Column(Text)
+
+    node = relationship("Node")
+
+
+class AlertRule(Base):
+    __tablename__ = "alert_rules"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    node_id = Column(UUID(as_uuid=True), ForeignKey("nodes.id", ondelete="CASCADE"), nullable=True)
+    metric = Column(String(64), nullable=False)
+    operator = Column(String(8), nullable=False)
+    threshold = Column(Float, nullable=False)
+    severity = Column(Enum(AlertSeverity, name='alert_severity'), nullable=False, default=AlertSeverity.warning)
+    message = Column(Text)
+    enabled = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
