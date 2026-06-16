@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from sqlalchemy import (
     Column, String, Text, Boolean, Integer, BigInteger,
-    Float, DateTime, Enum, ForeignKey, ARRAY, JSON, Index
+    Float, DateTime, Enum, ForeignKey, ARRAY, JSON, Index, UniqueConstraint
 )
 from sqlalchemy.dialects.postgresql import UUID, INET, REAL
 from sqlalchemy.orm import DeclarativeBase, relationship
@@ -104,6 +104,7 @@ class Node(Base):
     os_version = Column(Text)
     arch = Column(String(32))
     pi_model = Column(Text)
+    agent_version = Column(String(32))   # Issue #16: reported agent version
 
     metrics = relationship("NodeMetric", back_populates="node", cascade="all, delete")
     commands = relationship("Command", back_populates="node", cascade="all, delete")
@@ -152,6 +153,11 @@ class NodeService(Base):
 
     node = relationship("Node", back_populates="services")
 
+    # Issue #4: required for the ON CONFLICT (node_id, service_name) upsert in node_ws.py
+    __table_args__ = (
+        UniqueConstraint("node_id", "service_name", name="uq_node_service"),
+    )
+
 
 class Command(Base):
     __tablename__ = "commands"
@@ -186,6 +192,11 @@ class AuditLog(Base):
     details = Column(JSON)
     ip_address = Column(INET)
     created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_audit_created", "created_at"),
+        Index("idx_audit_node", "node_id", "created_at"),
+    )
 
 
 class Alert(Base):
@@ -227,10 +238,10 @@ class FileTransfer(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     node_id = Column(UUID(as_uuid=True), ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False)
     initiated_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
-    direction = Column(String(16), nullable=False)
+    direction = Column(String(16), nullable=False)   # "push" or "pull"
     remote_path = Column(Text, nullable=False)
     file_size_bytes = Column(BigInteger)
-    status = Column(String(32), nullable=False, default="pending")
+    status = Column(String(32), nullable=False, default="pending")  # completed / failed
     created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
     completed_at = Column(DateTime(timezone=True))
     error = Column(Text)
@@ -244,9 +255,26 @@ class AlertRule(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     node_id = Column(UUID(as_uuid=True), ForeignKey("nodes.id", ondelete="CASCADE"), nullable=True)
     metric = Column(String(64), nullable=False)
-    operator = Column(String(8), nullable=False)
+    operator = Column(String(8), nullable=False)     # gt, lt, gte, lte
     threshold = Column(Float, nullable=False)
     severity = Column(Enum(AlertSeverity, name='alert_severity'), nullable=False, default=AlertSeverity.warning)
     message = Column(Text)
     enabled = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+
+
+class ScheduledJob(Base):
+    """Issue #12: recurring command execution via cron expressions."""
+    __tablename__ = "scheduled_jobs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    node_id = Column(UUID(as_uuid=True), ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False)
+    command = Column(Text, nullable=False)
+    cron_expression = Column(String(128), nullable=False)
+    enabled = Column(Boolean, nullable=False, default=True)
+    last_run = Column(DateTime(timezone=True))
+    last_exit_code = Column(Integer)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+
+    node = relationship("Node")

@@ -56,6 +56,21 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
 
+    # ── Notifications (Issue #2) ──────────────────────────────────────────
+    # All blank by default so the server runs unchanged with nothing configured.
+    ALERT_WEBHOOK_URL: str = ""           # POST JSON alert payloads here
+    NTFY_URL: str = ""                    # e.g. "https://ntfy.sh"
+    NTFY_TOPIC: str = ""                  # e.g. "picommand-alerts"
+
+    # ── Auto-update System (Issues #16 & #17) ─────────────────────────────
+    SERVER_AUTO_UPDATE: bool = True
+    SERVER_UPDATE_CHECK_HOURS: int = 24
+    AGENT_AUTO_UPDATE: bool = True
+    LATEST_AGENT_VERSION: str = "1.0.0"
+    # Absolute path to the git checkout the server runs from (used by the
+    # auto-update task to run git fetch / scripts/update-server.sh).
+    REPO_DIR: str = "/opt/picommand"
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

@@ -53,6 +53,17 @@ class ConnectionManager:
         self._lock = asyncio.Lock()
         # Subscribers for SSE / dashboard push
         self._event_subscribers: list[asyncio.Queue] = []
+        # Issue #16/#17: when the server is mid-update, suppress agent updates
+        self._update_in_progress: bool = False
+
+    # ── Update coordination ───────────────────────────────────────────────────
+
+    def set_update_in_progress(self, value: bool) -> None:
+        self._update_in_progress = value
+
+    @property
+    def update_in_progress(self) -> bool:
+        return self._update_in_progress
 
     # ── Connection Lifecycle ──────────────────────────────────────────────────
 

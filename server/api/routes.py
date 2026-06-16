@@ -1,5 +1,6 @@
 """
-REST API: nodes, commands, metrics, file transfers, deployments, users, alerts
+REST API: nodes, commands, metrics, file transfers, deployments, users, alerts,
+tokens, audit log, scheduled jobs, bulk commands.
 """
 from __future__ import annotations
 
@@ -17,8 +18,9 @@ from fastapi import (
     BackgroundTasks, Query, Request, Response
 )
 from fastapi.responses import StreamingResponse
-from fastapi.security import OAuth2PasswordRequestForm
-from pydantic import BaseModel, Field
+from fastapi.security import OAuth2PasswordRequestForm, HTTPBearer, HTTPAuthorizationCredentials
+from jose import JWTError
+from pydantic import BaseModel, Field, EmailStr
 from sqlalchemy import select, desc, func, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,17 +29,20 @@ from server.core.dependencies import (
 )
 from server.core.security import (
     verify_password, hash_password, create_access_token,
-    create_refresh_token, generate_api_token, hash_api_token
+    create_refresh_token, decode_token, generate_api_token, hash_api_token
 )
+from server.core.config import get_settings
 from server.db.database import get_db
 from server.db.models import (
     User, UserRole, Node, NodeMetric, NodeStatus, Command, CommandStatus,
     AuditLog, FileTransfer, Deployment, Alert, AlertSeverity, DeployStatus,
-    ApiToken
+    ApiToken, AlertRule, ScheduledJob
 )
 from server.services.connection_manager import manager
+from server.services.rate_limit import limiter
 
 router = APIRouter()
+_bearer = HTTPBearer(auto_error=False)
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -46,12 +51,14 @@ router = APIRouter()
 
 class TokenResponse(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
     expires_in: int
 
 
 @router.post("/api/auth/login", response_model=TokenResponse, tags=["auth"])
-async def login(form: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def login(request: Request, form: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.username == form.username))
     user = result.scalar_one_or_none()
     if not user or not verify_password(form.password, user.password_hash):
@@ -64,10 +71,48 @@ async def login(form: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = 
     )
     await db.commit()
 
-    token = create_access_token(str(user.id), user.role.value)
-    from server.core.config import get_settings
+    access = create_access_token(str(user.id), user.role.value)
+    refresh = create_refresh_token(str(user.id))
     s = get_settings()
-    return TokenResponse(access_token=token, expires_in=s.ACCESS_TOKEN_EXPIRE_MINUTES * 60)
+    return TokenResponse(
+        access_token=access,
+        refresh_token=refresh,
+        expires_in=s.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+
+
+@router.post("/api/auth/refresh", response_model=TokenResponse, tags=["auth"])
+async def refresh_token(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+    db: AsyncSession = Depends(get_db),
+):
+    """Exchange a valid refresh token (bearer header) for a new access token."""
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        payload = decode_token(credentials.credentials)
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+
+    if payload.get("type") != "refresh":
+        raise HTTPException(status_code=401, detail="Not a refresh token")
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Malformed token")
+
+    result = await db.execute(select(User).where(User.id == UUID(user_id)))
+    user = result.scalar_one_or_none()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="User not found or disabled")
+
+    access = create_access_token(str(user.id), user.role.value)
+    refresh = create_refresh_token(str(user.id))
+    s = get_settings()
+    return TokenResponse(
+        access_token=access,
+        refresh_token=refresh,
+        expires_in=s.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
 
 
 @router.get("/api/auth/me", tags=["auth"])
@@ -118,6 +163,7 @@ def _node_to_dict(node: Node, online: bool = False) -> dict:
         "os_version": node.os_version,
         "arch": node.arch,
         "pi_model": node.pi_model,
+        "agent_version": node.agent_version,
         "created_at": node.created_at.isoformat(),
     }
 
@@ -151,10 +197,8 @@ async def register_node(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="node_id already exists")
 
-    # Assign SSH tunnel port
     used_ports = await db.execute(select(Node.ssh_tunnel_port).where(Node.ssh_tunnel_port.isnot(None)))
     used = {p for (p,) in used_ports}
-    from server.core.config import get_settings
     s = get_settings()
     port = None
     for p in range(s.TUNNEL_PORT_RANGE_START, s.TUNNEL_PORT_RANGE_END):
@@ -322,6 +366,99 @@ async def list_commands(
     ]
 
 
+# ── Bulk command execution (Issue #13) ─────────────────────────────────────────
+
+class BulkCommandRequest(BaseModel):
+    node_ids: Optional[list[str]] = None   # explicit node slugs
+    tag: Optional[str] = None              # OR target all connected nodes with this tag
+    command: str
+    timeout: int = Field(default=30, ge=1, le=300)
+
+
+@router.post("/api/commands/bulk", tags=["commands"])
+async def bulk_command(
+    body: BulkCommandRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_operator),
+):
+    """Run a command across many nodes in parallel. Returns a per-node result map."""
+    # Resolve the target node set
+    q = select(Node)
+    if body.node_ids:
+        q = q.where(Node.node_id.in_(body.node_ids))
+    elif body.tag:
+        q = q.where(Node.tags.contains([body.tag]))
+    else:
+        raise HTTPException(400, "Provide either node_ids or tag")
+
+    result = await db.execute(q)
+    nodes = result.scalars().all()
+    if not nodes:
+        raise HTTPException(404, "No matching nodes")
+
+    # Only run against connected nodes
+    targets = [n for n in nodes if manager.is_connected(n.node_id)]
+    skipped = [n.node_id for n in nodes if not manager.is_connected(n.node_id)]
+
+    # Persist a Command row per target and an audit log entry
+    cmd_ids: dict[str, str] = {}
+    for n in targets:
+        cmd = Command(
+            node_id=n.id,
+            issued_by=user.id,
+            command=body.command,
+            status=CommandStatus.running,
+            started_at=datetime.now(timezone.utc),
+            timeout_seconds=body.timeout,
+        )
+        db.add(cmd)
+        await db.flush()
+        cmd_ids[n.node_id] = str(cmd.id)
+        db.add(AuditLog(user_id=user.id, node_id=n.id, action="bulk_command_executed",
+                        details={"command": body.command}))
+    await db.commit()
+
+    async def _run(n: Node):
+        try:
+            r = await manager.execute_command(n.node_id, body.command, cmd_ids[n.node_id], body.timeout)
+            status = "completed" if r["exit_code"] == 0 else "failed"
+            return n.node_id, {
+                "exit_code": r["exit_code"],
+                "stdout": r["stdout"],
+                "stderr": r["stderr"],
+                "status": status,
+            }
+        except asyncio.TimeoutError:
+            return n.node_id, {"exit_code": None, "stdout": "", "stderr": "timed out", "status": "timeout"}
+        except Exception as e:
+            return n.node_id, {"exit_code": None, "stdout": "", "stderr": str(e), "status": "error"}
+
+    results = await asyncio.gather(*[_run(n) for n in targets])
+    result_map = {nid: res for nid, res in results}
+
+    # Persist results
+    for n in targets:
+        res = result_map[n.node_id]
+        st = CommandStatus.completed if res["status"] == "completed" else (
+            CommandStatus.timeout if res["status"] == "timeout" else CommandStatus.failed
+        )
+        await db.execute(
+            update(Command).where(Command.id == UUID(cmd_ids[n.node_id])).values(
+                status=st,
+                exit_code=res["exit_code"],
+                stdout=res["stdout"],
+                stderr=res["stderr"],
+                completed_at=datetime.now(timezone.utc),
+            )
+        )
+    await db.commit()
+
+    for nid in skipped:
+        result_map[nid] = {"exit_code": None, "stdout": "", "stderr": "offline", "status": "offline"}
+
+    return {"results": result_map, "executed": len(targets), "skipped": skipped}
+
+
 # ════════════════════════════════════════════════════════════════════════════════
 # METRICS
 # ════════════════════════════════════════════════════════════════════════════════
@@ -355,6 +492,8 @@ async def get_metrics(
             "temp": m.cpu_temp_c,
             "load1": m.load_avg_1,
             "uptime": m.uptime_seconds,
+            "net_bytes_sent": m.net_bytes_sent,
+            "net_bytes_recv": m.net_bytes_recv,
         }
         for m in rows
     ]
@@ -394,6 +533,8 @@ async def get_latest_metrics(
         "load_avg_5": metric.load_avg_5,
         "load_avg_15": metric.load_avg_15,
         "uptime_seconds": metric.uptime_seconds,
+        "net_bytes_sent": metric.net_bytes_sent,
+        "net_bytes_recv": metric.net_bytes_recv,
     }
 
 
@@ -451,6 +592,7 @@ async def acknowledge_alert(
 class DeploymentCreate(BaseModel):
     package_name: str
     script: str
+    target_tags: Optional[list[str]] = None   # Issue #14: multi-node by tag
 
 
 @router.post("/api/nodes/{node_id}/deploy", tags=["deployments"])
@@ -461,6 +603,40 @@ async def deploy(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_operator),
 ):
+    # Issue #14: if target_tags given, ignore node_id and deploy to all
+    # connected nodes carrying any of those tags, in parallel.
+    if body.target_tags:
+        q = select(Node).where(Node.tags.overlap(body.target_tags))
+        result = await db.execute(q)
+        nodes = [n for n in result.scalars().all() if manager.is_connected(n.node_id)]
+        if not nodes:
+            raise HTTPException(404, "No connected nodes match the given tags")
+
+        deps = []
+        for n in nodes:
+            dep = Deployment(
+                node_id=n.id,
+                initiated_by=user.id,
+                package_name=body.package_name,
+                script=body.script,
+                status=DeployStatus.in_progress,
+            )
+            db.add(dep)
+            await db.flush()
+            deps.append((n.node_id, str(n.id), str(dep.id)))
+            db.add(AuditLog(user_id=user.id, node_id=n.id, action="deploy_started",
+                            details={"package": body.package_name, "via": "tags"}))
+        await db.commit()
+
+        for nid, ndbid, depid in deps:
+            background_tasks.add_task(_run_deployment, nid, ndbid, depid, body.script)
+
+        return [
+            {"node_id": nid, "deployment_id": depid, "status": "in_progress"}
+            for nid, _, depid in deps
+        ]
+
+    # Single-node path
     result = await db.execute(select(Node).where(Node.node_id == node_id))
     node = result.scalar_one_or_none()
     if not node:
@@ -478,6 +654,10 @@ async def deploy(
     db.add(dep)
     await db.commit()
     await db.refresh(dep)
+
+    db.add(AuditLog(user_id=user.id, node_id=node.id, action="deploy_started",
+                    details={"package": body.package_name}))
+    await db.commit()
 
     background_tasks.add_task(_run_deployment, node_id, str(node.id), str(dep.id), body.script)
     return {"deployment_id": str(dep.id), "status": "in_progress"}
@@ -505,7 +685,7 @@ async def _run_deployment(node_id: str, node_db_id: str, dep_id: str, script: st
 
 
 # ════════════════════════════════════════════════════════════════════════════════
-# FILE TRANSFERS
+# FILE TRANSFERS  (Issue #10: persist a FileTransfer row on every transfer)
 # ════════════════════════════════════════════════════════════════════════════════
 
 @router.post("/api/nodes/{node_id}/files/download", tags=["files"])
@@ -515,7 +695,7 @@ async def download_from_node(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_operator),
 ):
-    """Retrieve a file from the Pi."""
+    """Retrieve a file from the Pi (direction = pull)."""
     result = await db.execute(select(Node).where(Node.node_id == node_id))
     node = result.scalar_one_or_none()
     if not node:
@@ -523,11 +703,37 @@ async def download_from_node(
     if not manager.is_connected(node_id):
         raise HTTPException(503, "Node is offline")
 
+    transfer = FileTransfer(
+        node_id=node.id,
+        initiated_by=user.id,
+        direction="pull",
+        remote_path=remote_path,
+        status="pending",
+    )
+    db.add(transfer)
+    await db.commit()
+    await db.refresh(transfer)
+
     transfer_id = str(uuid.uuid4())
     try:
         data = await manager.request_file_download(node_id, remote_path, transfer_id)
     except Exception as e:
+        await db.execute(
+            update(FileTransfer).where(FileTransfer.id == transfer.id).values(
+                status="failed", error=str(e), completed_at=datetime.now(timezone.utc)
+            )
+        )
+        await db.commit()
         raise HTTPException(500, f"Transfer failed: {e}")
+
+    await db.execute(
+        update(FileTransfer).where(FileTransfer.id == transfer.id).values(
+            status="completed",
+            file_size_bytes=len(data),
+            completed_at=datetime.now(timezone.utc),
+        )
+    )
+    await db.commit()
 
     filename = remote_path.split("/")[-1]
     return StreamingResponse(
@@ -535,6 +741,61 @@ async def download_from_node(
         media_type="application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
+
+
+@router.post("/api/nodes/{node_id}/files/upload", tags=["files"])
+async def upload_to_node(
+    node_id: str,
+    dest_path: str = Query(..., description="Destination path on the Pi"),
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_operator),
+):
+    """Push a file to the Pi (direction = push)."""
+    result = await db.execute(select(Node).where(Node.node_id == node_id))
+    node = result.scalar_one_or_none()
+    if not node:
+        raise HTTPException(404, "Node not found")
+    if not manager.is_connected(node_id):
+        raise HTTPException(503, "Node is offline")
+
+    s = get_settings()
+    content = await file.read()
+    if len(content) > s.MAX_UPLOAD_SIZE_MB * 1024 * 1024:
+        raise HTTPException(413, f"File exceeds {s.MAX_UPLOAD_SIZE_MB}MB limit")
+
+    transfer = FileTransfer(
+        node_id=node.id,
+        initiated_by=user.id,
+        direction="push",
+        remote_path=dest_path,
+        file_size_bytes=len(content),
+        status="pending",
+    )
+    db.add(transfer)
+    await db.commit()
+    await db.refresh(transfer)
+
+    transfer_id = str(uuid.uuid4())
+    try:
+        await manager.push_file_to_node(node_id, dest_path, content, transfer_id)
+    except Exception as e:
+        await db.execute(
+            update(FileTransfer).where(FileTransfer.id == transfer.id).values(
+                status="failed", error=str(e), completed_at=datetime.now(timezone.utc)
+            )
+        )
+        await db.commit()
+        raise HTTPException(500, f"Transfer failed: {e}")
+
+    await db.execute(
+        update(FileTransfer).where(FileTransfer.id == transfer.id).values(
+            status="completed", completed_at=datetime.now(timezone.utc)
+        )
+    )
+    await db.commit()
+
+    return {"status": "uploaded", "dest_path": dest_path, "bytes": len(content)}
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -593,12 +854,12 @@ async def get_stats(
 class UserCreate(BaseModel):
     username: str = Field(..., min_length=3, max_length=64)
     password: str = Field(..., min_length=8)
-    email: Optional[str] = None
+    email: EmailStr                        # Issue #5: required + validated → clean 422
     role: str = "viewer"
 
 
 class UserUpdate(BaseModel):
-    email: Optional[str] = None
+    email: Optional[EmailStr] = None
     role: Optional[str] = None
     is_active: Optional[bool] = None
     password: Optional[str] = Field(None, min_length=8)
@@ -634,6 +895,10 @@ async def create_user(
     existing = await db.execute(select(User).where(User.username == body.username))
     if existing.scalar_one_or_none():
         raise HTTPException(409, "Username already exists")
+
+    email_exists = await db.execute(select(User).where(User.email == body.email))
+    if email_exists.scalar_one_or_none():
+        raise HTTPException(409, "Email already in use")
 
     try:
         role = UserRole(body.role)
@@ -722,6 +987,125 @@ async def change_password(
 
 
 # ════════════════════════════════════════════════════════════════════════════════
+# API TOKENS  (Issue #8)
+# ════════════════════════════════════════════════════════════════════════════════
+
+class ApiTokenCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+    expires_in_days: Optional[int] = Field(None, ge=1, le=3650)
+
+
+@router.post("/api/tokens", status_code=201, tags=["tokens"])
+async def create_api_token(
+    body: ApiTokenCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Create an API token. The raw token is returned exactly once."""
+    raw, hashed = generate_api_token()
+    expires_at = None
+    if body.expires_in_days:
+        expires_at = datetime.now(timezone.utc) + timedelta(days=body.expires_in_days)
+
+    token = ApiToken(
+        user_id=user.id,
+        token_hash=hashed,
+        name=body.name,
+        expires_at=expires_at,
+    )
+    db.add(token)
+    await db.commit()
+    await db.refresh(token)
+
+    return {
+        "id": str(token.id),
+        "name": token.name,
+        "token": raw,   # shown only once
+        "expires_at": token.expires_at.isoformat() if token.expires_at else None,
+        "created_at": token.created_at.isoformat(),
+    }
+
+
+@router.get("/api/tokens", tags=["tokens"])
+async def list_api_tokens(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(ApiToken).where(ApiToken.user_id == user.id).order_by(desc(ApiToken.created_at))
+    )
+    tokens = result.scalars().all()
+    return [
+        {
+            "id": str(t.id),
+            "name": t.name,
+            "created_at": t.created_at.isoformat(),
+            "expires_at": t.expires_at.isoformat() if t.expires_at else None,
+            "last_used": t.last_used.isoformat() if t.last_used else None,
+        }
+        for t in tokens
+    ]
+
+
+@router.delete("/api/tokens/{token_id}", status_code=204, tags=["tokens"])
+async def revoke_api_token(
+    token_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(ApiToken).where(ApiToken.id == token_id, ApiToken.user_id == user.id)
+    )
+    token = result.scalar_one_or_none()
+    if not token:
+        raise HTTPException(404, "Token not found")
+    await db.delete(token)
+    await db.commit()
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# AUDIT LOG  (Issue #9: read route, admin only)
+# ════════════════════════════════════════════════════════════════════════════════
+
+@router.get("/api/audit-log", tags=["audit"])
+async def get_audit_log(
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    user_id: Optional[UUID] = None,
+    node_id: Optional[UUID] = None,
+    action: Optional[str] = None,
+    since: Optional[datetime] = None,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    q = select(AuditLog).order_by(desc(AuditLog.created_at))
+    if user_id:
+        q = q.where(AuditLog.user_id == user_id)
+    if node_id:
+        q = q.where(AuditLog.node_id == node_id)
+    if action:
+        q = q.where(AuditLog.action == action)
+    if since:
+        q = q.where(AuditLog.created_at >= since)
+    q = q.offset(offset).limit(limit)
+
+    result = await db.execute(q)
+    entries = result.scalars().all()
+    return [
+        {
+            "id": e.id,
+            "user_id": str(e.user_id) if e.user_id else None,
+            "node_id": str(e.node_id) if e.node_id else None,
+            "action": e.action,
+            "details": e.details,
+            "ip_address": str(e.ip_address) if e.ip_address else None,
+            "created_at": e.created_at.isoformat(),
+        }
+        for e in entries
+    ]
+
+
+# ════════════════════════════════════════════════════════════════════════════════
 # NODE SERVICES (real data from push)
 # ════════════════════════════════════════════════════════════════════════════════
 
@@ -754,52 +1138,13 @@ async def get_node_services(
 
 
 # ════════════════════════════════════════════════════════════════════════════════
-# FILE UPLOAD (push file TO node)
-# ════════════════════════════════════════════════════════════════════════════════
-
-class FileUploadRequest(BaseModel):
-    dest_path: str
-
-
-@router.post("/api/nodes/{node_id}/files/upload", tags=["files"])
-async def upload_to_node(
-    node_id: str,
-    dest_path: str = Query(..., description="Destination path on the Pi"),
-    file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_operator),
-):
-    """Push a file to the Pi."""
-    result = await db.execute(select(Node).where(Node.node_id == node_id))
-    node = result.scalar_one_or_none()
-    if not node:
-        raise HTTPException(404, "Node not found")
-    if not manager.is_connected(node_id):
-        raise HTTPException(503, "Node is offline")
-
-    from server.core.config import get_settings
-    s = get_settings()
-    content = await file.read()
-    if len(content) > s.MAX_UPLOAD_SIZE_MB * 1024 * 1024:
-        raise HTTPException(413, f"File exceeds {s.MAX_UPLOAD_SIZE_MB}MB limit")
-
-    transfer_id = str(uuid.uuid4())
-    try:
-        await manager.push_file_to_node(node_id, dest_path, content, transfer_id)
-    except Exception as e:
-        raise HTTPException(500, f"Transfer failed: {e}")
-
-    return {"status": "uploaded", "dest_path": dest_path, "bytes": len(content)}
-
-
-# ════════════════════════════════════════════════════════════════════════════════
 # ALERT RULES
 # ════════════════════════════════════════════════════════════════════════════════
 
 class AlertRuleCreate(BaseModel):
     node_id: Optional[str] = None   # None = global rule
     metric: str                     # cpu_percent, ram_percent, disk_percent, cpu_temp_c
-    operator: str                   # gt, lt, gte, lte
+    operator: str = Field("gte", pattern=r'^(gt|lt|gte|lte)$')
     threshold: float
     severity: str = "warning"
     message: Optional[str] = None
@@ -810,7 +1155,6 @@ async def list_alert_rules(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_viewer),
 ):
-    from server.db.models import AlertRule
     result = await db.execute(select(AlertRule).order_by(AlertRule.created_at))
     rules = result.scalars().all()
     return [
@@ -834,8 +1178,6 @@ async def create_alert_rule(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_operator),
 ):
-    from server.db.models import AlertRule
-
     node_db_id = None
     if body.node_id:
         result = await db.execute(select(Node).where(Node.node_id == body.node_id))
@@ -865,10 +1207,123 @@ async def delete_alert_rule(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_operator),
 ):
-    from server.db.models import AlertRule
     result = await db.execute(select(AlertRule).where(AlertRule.id == rule_id))
     rule = result.scalar_one_or_none()
     if not rule:
         raise HTTPException(404, "Rule not found")
     await db.delete(rule)
+    await db.commit()
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# SCHEDULED JOBS  (Issue #12)
+# ════════════════════════════════════════════════════════════════════════════════
+
+class ScheduledJobCreate(BaseModel):
+    node_id: str
+    command: str
+    cron_expression: str
+    enabled: bool = True
+
+
+class ScheduledJobUpdate(BaseModel):
+    command: Optional[str] = None
+    cron_expression: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+def _job_to_dict(j: ScheduledJob) -> dict:
+    return {
+        "id": str(j.id),
+        "node_id": str(j.node_id),
+        "command": j.command,
+        "cron_expression": j.cron_expression,
+        "enabled": j.enabled,
+        "last_run": j.last_run.isoformat() if j.last_run else None,
+        "last_exit_code": j.last_exit_code,
+        "created_at": j.created_at.isoformat(),
+    }
+
+
+@router.get("/api/scheduled-jobs", tags=["scheduled"])
+async def list_scheduled_jobs(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_viewer),
+):
+    result = await db.execute(select(ScheduledJob).order_by(ScheduledJob.created_at))
+    return [_job_to_dict(j) for j in result.scalars().all()]
+
+
+@router.post("/api/scheduled-jobs", status_code=201, tags=["scheduled"])
+async def create_scheduled_job(
+    body: ScheduledJobCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_operator),
+):
+    # Validate cron expression
+    try:
+        from croniter import croniter
+        if not croniter.is_valid(body.cron_expression):
+            raise ValueError("invalid cron expression")
+    except ImportError:
+        pass  # croniter checked again by scheduler; don't hard-fail creation
+    except ValueError:
+        raise HTTPException(400, "Invalid cron expression")
+
+    result = await db.execute(select(Node).where(Node.node_id == body.node_id))
+    node = result.scalar_one_or_none()
+    if not node:
+        raise HTTPException(404, "Node not found")
+
+    job = ScheduledJob(
+        node_id=node.id,
+        command=body.command,
+        cron_expression=body.cron_expression,
+        enabled=body.enabled,
+        created_by=user.id,
+    )
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+    return _job_to_dict(job)
+
+
+@router.patch("/api/scheduled-jobs/{job_id}", tags=["scheduled"])
+async def update_scheduled_job(
+    job_id: UUID,
+    body: ScheduledJobUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_operator),
+):
+    result = await db.execute(select(ScheduledJob).where(ScheduledJob.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(404, "Job not found")
+
+    updates = body.model_dump(exclude_none=True)
+    if "cron_expression" in updates:
+        try:
+            from croniter import croniter
+            if not croniter.is_valid(updates["cron_expression"]):
+                raise HTTPException(400, "Invalid cron expression")
+        except ImportError:
+            pass
+
+    if updates:
+        await db.execute(update(ScheduledJob).where(ScheduledJob.id == job_id).values(**updates))
+        await db.commit()
+    return {"status": "updated"}
+
+
+@router.delete("/api/scheduled-jobs/{job_id}", status_code=204, tags=["scheduled"])
+async def delete_scheduled_job(
+    job_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operator),
+):
+    result = await db.execute(select(ScheduledJob).where(ScheduledJob.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(404, "Job not found")
+    await db.delete(job)
     await db.commit()

@@ -3,13 +3,14 @@ FastAPI dependency injection for authentication and authorization.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, status, WebSocket
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.core.security import decode_token, hash_api_token
@@ -30,9 +31,12 @@ async def get_current_user(
 
     token = credentials.credentials
 
-    # Try JWT first
+    # Try JWT first. Only an access token is valid for API access — a refresh
+    # token must not be usable as a bearer credential here.
     try:
         payload = decode_token(token)
+        if payload.get("type") == "refresh":
+            raise HTTPException(status_code=401, detail="Refresh token cannot be used for API access")
         user_id = payload.get("sub")
         if not user_id:
             raise ValueError("no sub")
@@ -53,10 +57,27 @@ async def get_current_user(
     if not api_token:
         raise HTTPException(status_code=401, detail="Invalid token")
 
+    # Reject expired tokens
+    if api_token.expires_at is not None:
+        exp = api_token.expires_at
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if exp < datetime.now(timezone.utc):
+            raise HTTPException(status_code=401, detail="Token expired")
+
     result = await db.execute(select(User).where(User.id == api_token.user_id))
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found or disabled")
+
+    # Issue #8: stamp last_used on successful API-token auth.
+    await db.execute(
+        update(ApiToken)
+        .where(ApiToken.id == api_token.id)
+        .values(last_used=datetime.now(timezone.utc))
+    )
+    await db.commit()
+
     return user
 
 
