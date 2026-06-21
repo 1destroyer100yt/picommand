@@ -5,410 +5,534 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PiCommand — Node Management</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  /* ── Reset & Variables ─────────────────────────────────────────────────── */
+  /* ════════════════════════════════════════════════════════════════════════
+     NEON CLAY — design tokens
+     Claymorphism's puffy, double-shadowed shape language, rebuilt for an
+     OLED-black surface: glow instead of shade, jewel-tone instead of pastel.
+     ════════════════════════════════════════════════════════════════════════ */
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --bg: #070b10;
-    --bg2: #0d1117;
-    --bg3: #141c25;
-    --bg4: #1a2433;
-    --border: rgba(48,120,200,0.18);
-    --border2: rgba(48,120,200,0.35);
-    --accent: #1e7fff;
-    --accent2: #00d4aa;
-    --accent3: #ff6b4a;
-    --warn: #f5a623;
-    --crit: #ff3b4e;
-    --ok: #27e8a7;
-    --text: #c8d8f0;
-    --text2: #6b8aaa;
-    --text3: #3d5470;
-    --mono: 'JetBrains Mono', monospace;
-    --sans: 'Space Grotesk', sans-serif;
-    --glow: 0 0 20px rgba(30,127,255,0.15);
-    --glow2: 0 0 40px rgba(30,127,255,0.08);
-    --radius: 8px;
-    --sidebar: 220px;
+    --bg: #000000;
+    --surface: #0c0c0e;
+    --surface2: #121214;
+    --surface3: #18181b;
+
+    --pink: #FF5FA8;   --pink-dark: #c23d80;   --pink-light: #ff8cc5;
+    --mint: #3DFFB0;   --mint-dark: #1ea876;   --mint-light: #7dffce;
+    --cyan: #3DD5FF;   --cyan-dark: #1a8bb8;   --cyan-light: #8ce8ff;
+    --violet:#B563FF;  --violet-dark:#7028b8;  --violet-light:#d3a8ff;
+    --amber: #FFC24D;  --amber-dark: #c8861a;  --amber-light: #ffd98c;
+    --grey:  #5e5e6e;  --grey-dark: #38383f;   --grey-light: #9a9aa8;
+
+    /* semantic mapping onto the 5-hue rotation */
+    --accent: var(--cyan); --accent-dark: var(--cyan-dark); --accent-light: var(--cyan-light);
+    --ok: var(--mint);     --ok-dark: var(--mint-dark);     --ok-light: var(--mint-light);
+    --warn: var(--amber);  --warn-dark: var(--amber-dark);  --warn-light: var(--amber-light);
+    --crit: var(--pink);   --crit-dark: var(--pink-dark);   --crit-light: var(--pink-light);
+    --info: var(--violet); --info-dark: var(--violet-dark); --info-light: var(--violet-light);
+
+    --text:  #f5f5fa;
+    --text2: #9a9aa8;
+    --text3: #5e5e6e;
+
+    --font-display: 'Sora', sans-serif;
+    --font-body: 'Inter', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+
+    --r-lg: 24px;
+    --r-md: 18px;
+    --r-sm: 12px;
+    --r-pill: 999px;
+
+    --sidebar: 232px;
+    --ease: cubic-bezier(.34,1.4,.64,1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
   }
 
   html, body { height: 100%; overflow: hidden; }
   body {
     background: var(--bg);
     color: var(--text);
-    font-family: var(--sans);
+    font-family: var(--font-body);
     font-size: 13px;
     display: flex;
     flex-direction: column;
   }
+  h1, h2, h3, .display { font-family: var(--font-display); }
 
-  /* ── Scrollbar ─────────────────────────────────────────────────────────── */
-  ::-webkit-scrollbar { width: 4px; height: 4px; }
-  ::-webkit-scrollbar-track { background: var(--bg2); }
-  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--cyan) 35%, transparent);
+    border-radius: 4px;
+  }
+
+  /* ── Icon badge (clay anatomy #2) ────────────────────────────────────── */
+  .icon {
+    width: 18px; height: 18px; display: block;
+    stroke: currentColor; fill: none;
+  }
+  .icon-badge {
+    --ca: var(--cyan); --ca-dark: var(--cyan-dark); --ca-light: var(--cyan-light);
+    width: 36px; height: 36px; flex-shrink: 0;
+    border-radius: 16px;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(155deg, var(--ca-light), var(--ca-dark));
+    color: #08090b;
+    box-shadow:
+      0 4px 10px color-mix(in srgb, var(--ca) 45%, transparent),
+      inset 1px 1px 0 rgba(255,255,255,0.35),
+      inset -1px -1px 4px rgba(0,0,0,0.25);
+  }
+  .icon-badge.sm { width: 28px; height: 28px; border-radius: 12px; }
+  .icon-badge.sm .icon { width: 14px; height: 14px; }
+  .icon-badge.mint   { --ca: var(--mint);   --ca-dark: var(--mint-dark);   --ca-light: var(--mint-light); }
+  .icon-badge.violet { --ca: var(--violet); --ca-dark: var(--violet-dark); --ca-light: var(--violet-light); }
+  .icon-badge.amber  { --ca: var(--amber);  --ca-dark: var(--amber-dark);  --ca-light: var(--amber-light); }
+  .icon-badge.pink   { --ca: var(--pink);   --ca-dark: var(--pink-dark);   --ca-light: var(--pink-light); }
+  .icon-badge.brand {
+    background: linear-gradient(155deg, var(--cyan-light), var(--violet-dark));
+    box-shadow:
+      0 4px 14px color-mix(in srgb, var(--cyan) 35%, transparent),
+      0 4px 14px color-mix(in srgb, var(--violet) 25%, transparent),
+      inset 1px 1px 0 rgba(255,255,255,0.35);
+  }
 
   /* ── Topbar ────────────────────────────────────────────────────────────── */
   #topbar {
     display: flex; align-items: center; gap: 16px;
-    padding: 0 20px; height: 48px;
-    background: var(--bg2);
-    border-bottom: 1px solid var(--border);
+    padding: 0 22px; height: 60px;
+    background: var(--bg);
+    border-bottom: 2px solid color-mix(in srgb, var(--cyan) 14%, transparent);
+    box-shadow: 0 1px 24px color-mix(in srgb, var(--cyan) 10%, transparent);
     flex-shrink: 0;
     z-index: 100;
   }
   .logo {
-    font-size: 15px; font-weight: 700; letter-spacing: 0.05em;
-    color: #fff;
-    display: flex; align-items: center; gap: 8px;
-  }
-  .logo-icon {
-    width: 26px; height: 26px;
-    background: linear-gradient(135deg, var(--accent), var(--accent2));
-    border-radius: 6px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 13px;
+    font-family: var(--font-display);
+    font-size: 17px; font-weight: 700; letter-spacing: -0.01em;
+    color: var(--text);
+    display: flex; align-items: center; gap: 10px;
   }
   .topbar-sep { flex: 1; }
-  #global-stats {
-    display: flex; gap: 24px; align-items: center;
-  }
-  .gstat {
-    display: flex; flex-direction: column; align-items: flex-end;
-  }
-  .gstat-val { font-size: 16px; font-weight: 600; font-family: var(--mono); color: #fff; }
-  .gstat-lbl { font-size: 10px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.08em; }
+  #global-stats { display: flex; gap: 26px; align-items: center; }
+  .gstat { display: flex; flex-direction: column; align-items: flex-end; }
+  .gstat-val { font-size: 18px; font-weight: 700; font-family: var(--font-mono); color: var(--text); }
+  .gstat-lbl { font-size: 9px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; }
   .topbar-user {
     display: flex; align-items: center; gap: 8px;
-    padding: 5px 12px; border-radius: var(--radius);
-    background: var(--bg3); border: 1px solid var(--border);
-    cursor: pointer; font-size: 12px; color: var(--text2);
+    padding: 7px 14px 7px 8px; border-radius: var(--r-pill);
+    background: var(--surface);
+    border: 2px solid color-mix(in srgb, var(--violet) 32%, transparent);
+    cursor: pointer; font-size: 12px; font-weight: 600; color: var(--text);
+    transition: transform .16s var(--ease), box-shadow .16s var(--ease);
   }
+  .topbar-user:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px color-mix(in srgb, var(--violet) 30%, transparent);
+  }
+  .topbar-user .icon { width: 13px; height: 13px; color: var(--text3); }
   .status-dot {
-    width: 7px; height: 7px; border-radius: 50%;
+    width: 9px; height: 9px; border-radius: 50%;
     background: var(--ok);
-    box-shadow: 0 0 6px var(--ok);
+    box-shadow: 0 0 8px var(--ok), 0 0 2px var(--ok);
     animation: pulse 2s infinite;
   }
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
-  }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
   #alert-badge {
-    display: flex; align-items: center; gap: 6px;
-    padding: 4px 10px; border-radius: 20px;
-    background: rgba(255,59,78,0.15); border: 1px solid rgba(255,59,78,0.3);
-    font-size: 11px; color: var(--crit); font-weight: 600;
+    display: flex; align-items: center; gap: 7px;
+    padding: 6px 14px 6px 10px; border-radius: var(--r-pill);
+    background: color-mix(in srgb, var(--pink) 14%, transparent);
+    border: 2px solid color-mix(in srgb, var(--pink) 50%, transparent);
+    font-size: 11px; color: var(--pink); font-weight: 700;
     cursor: pointer;
   }
+  #alert-badge .icon { width: 13px; height: 13px; }
   #alert-badge.hidden { display: none; }
 
   /* ── Layout ────────────────────────────────────────────────────────────── */
-  #layout {
-    display: flex; flex: 1; overflow: hidden;
-  }
+  #layout { display: flex; flex: 1; overflow: hidden; }
 
   /* ── Sidebar ───────────────────────────────────────────────────────────── */
   #sidebar {
     width: var(--sidebar); flex-shrink: 0;
-    background: var(--bg2);
-    border-right: 1px solid var(--border);
+    background: var(--bg);
+    border-right: 2px solid color-mix(in srgb, var(--cyan) 12%, transparent);
     display: flex; flex-direction: column;
     overflow: hidden;
+    padding: 16px 0;
   }
   .sidebar-section {
-    padding: 10px 12px 4px;
-    font-size: 9px; font-weight: 600; letter-spacing: 0.12em;
+    padding: 6px 18px 10px;
+    font-size: 9px; font-weight: 700; letter-spacing: 0.14em;
     text-transform: uppercase; color: var(--text3);
+    font-family: var(--font-display);
   }
-  #node-list { overflow-y: auto; flex: 1; }
+  #node-list { overflow-y: auto; flex: 1; padding: 0 10px; }
   .node-item {
-    display: flex; align-items: center; gap: 8px;
-    padding: 8px 14px; cursor: pointer;
-    transition: background 0.15s;
-    border-left: 2px solid transparent;
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px; cursor: pointer;
+    border-radius: var(--r-md);
+    transition: background .15s var(--ease), transform .15s var(--ease);
     user-select: none;
+    margin-bottom: 2px;
   }
-  .node-item:hover { background: var(--bg3); }
+  .node-item:hover { background: var(--surface); transform: translateX(2px); }
   .node-item.active {
-    background: rgba(30,127,255,0.1);
-    border-left-color: var(--accent);
+    background: var(--surface2);
+    border: 2px solid color-mix(in srgb, var(--cyan) 35%, transparent);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--cyan) 20%, transparent);
+    padding: 7px 10px;
   }
+  .node-item.active .node-name { color: var(--cyan); }
+  .nav-icon-wrap { display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
   .node-status-dot {
-    width: 6px; height: 6px; border-radius: 50%;
+    width: 8px; height: 8px; border-radius: 50%;
     flex-shrink: 0;
   }
-  .node-status-dot.online { background: var(--ok); box-shadow: 0 0 5px var(--ok); }
-  .node-status-dot.offline { background: var(--text3); }
-  .node-status-dot.pending { background: var(--warn); }
+  .node-status-dot.online { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  .node-status-dot.offline { background: var(--grey); }
+  .node-status-dot.pending { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
   .node-name {
-    font-size: 12px; font-weight: 500; color: var(--text);
+    font-size: 12.5px; font-weight: 600; color: var(--text);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .node-location { font-size: 10px; color: var(--text3); margin-left: auto; }
+  .node-location { font-size: 10px; color: var(--text3); margin-left: auto; font-weight: 500; }
 
   /* ── Main ──────────────────────────────────────────────────────────────── */
   #main {
-    flex: 1; overflow-y: auto; padding: 20px;
-    display: flex; flex-direction: column; gap: 16px;
+    flex: 1; overflow-y: auto; padding: 24px;
+    display: flex; flex-direction: column; gap: 18px;
   }
 
   /* ── Views ─────────────────────────────────────────────────────────────── */
   .view { display: none; }
   .view.active { display: contents; }
 
-  /* ── Cards ─────────────────────────────────────────────────────────────── */
+  /* ── Clay Card (anatomy #1) ───────────────────────────────────────────── */
   .card {
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
+    --ca: var(--cyan); --ca-dark: var(--cyan-dark);
+    background: var(--surface);
+    border-radius: var(--r-lg);
+    border: 3px solid color-mix(in srgb, var(--ca) 30%, transparent);
+    box-shadow:
+      8px 10px 24px color-mix(in srgb, var(--ca) 16%, transparent),
+      -8px -8px 22px color-mix(in srgb, var(--ca) 5%, transparent),
+      inset 0 1px 0 color-mix(in srgb, var(--ca) 22%, transparent);
     overflow: hidden;
   }
+  .card.accent-mint   { --ca: var(--mint);   --ca-dark: var(--mint-dark); }
+  .card.accent-violet { --ca: var(--violet); --ca-dark: var(--violet-dark); }
+  .card.accent-amber  { --ca: var(--amber);  --ca-dark: var(--amber-dark); }
+  .card.accent-pink   { --ca: var(--pink);   --ca-dark: var(--pink-dark); }
+
   .card-header {
-    display: flex; align-items: center; gap: 10px;
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg3);
+    display: flex; align-items: center; gap: 12px;
+    padding: 16px 20px;
+    border-bottom: 2px solid color-mix(in srgb, var(--ca) 16%, transparent);
   }
-  .card-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text2); }
-  .card-body { padding: 16px; }
+  .card-title {
+    font-family: var(--font-display);
+    font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--text2);
+  }
+  .card-body { padding: 20px; }
 
   /* ── Node Header ────────────────────────────────────────────────────────── */
   #node-header {
     display: flex; align-items: center; gap: 16px;
-    padding: 16px 20px;
-    background: var(--bg2); border: 1px solid var(--border);
-    border-radius: var(--radius);
+    padding: 18px 22px;
   }
-  .node-title { font-size: 20px; font-weight: 700; color: #fff; }
-  .node-subtitle { font-size: 12px; color: var(--text2); font-family: var(--mono); margin-top: 2px; }
+  .node-title { font-family: var(--font-display); font-size: 21px; font-weight: 700; color: var(--text); }
+  .node-subtitle { font-size: 12px; color: var(--text2); font-family: var(--font-mono); margin-top: 3px; }
   .badge {
-    padding: 3px 10px; border-radius: 20px;
-    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em;
+    padding: 5px 13px; border-radius: var(--r-pill);
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em;
+    border: 2px solid;
+    background: rgba(255,255,255,0.04);
   }
-  .badge.online { background: rgba(39,232,167,0.15); color: var(--ok); border: 1px solid rgba(39,232,167,0.3); }
-  .badge.offline { background: rgba(61,84,112,0.3); color: var(--text3); border: 1px solid var(--border); }
-  .badge.pending { background: rgba(245,166,35,0.15); color: var(--warn); border: 1px solid rgba(245,166,35,0.3); }
-  .node-actions { margin-left: auto; display: flex; gap: 8px; }
+  .badge.online   { color: var(--mint);  border-color: color-mix(in srgb, var(--mint) 55%, transparent); }
+  .badge.offline  { color: var(--grey-light); border-color: color-mix(in srgb, var(--grey) 60%, transparent); }
+  .badge.pending  { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 55%, transparent); }
+  .badge.failed, .badge.critical { color: var(--pink); border-color: color-mix(in srgb, var(--pink) 55%, transparent); }
+  .badge.warning  { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 55%, transparent); }
+  .badge.info     { color: var(--violet); border-color: color-mix(in srgb, var(--violet) 55%, transparent); }
+  .node-actions { margin-left: auto; display: flex; gap: 10px; }
 
   /* ── Metric Grid ─────────────────────────────────────────────────────────── */
   .metric-grid {
-    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;
   }
-  @media (max-width: 900px) {
-    .metric-grid { grid-template-columns: repeat(2, 1fr); }
-  }
+  @media (max-width: 900px) { .metric-grid { grid-template-columns: repeat(2, 1fr); } }
   .metric-card {
-    background: var(--bg3); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 14px 16px;
+    --ca: var(--cyan); --ca-dark: var(--cyan-dark); --ca-light: var(--cyan-light);
+    background: var(--surface);
+    border-radius: var(--r-lg);
+    border: 3px solid color-mix(in srgb, var(--ca) 30%, transparent);
+    box-shadow:
+      6px 8px 20px color-mix(in srgb, var(--ca) 16%, transparent),
+      -6px -6px 18px color-mix(in srgb, var(--ca) 5%, transparent),
+      inset 0 1px 0 color-mix(in srgb, var(--ca) 22%, transparent);
+    padding: 16px 18px;
   }
+  .metric-card.violet { --ca: var(--violet); --ca-dark: var(--violet-dark); --ca-light: var(--violet-light); }
+  .metric-card.mint   { --ca: var(--mint);   --ca-dark: var(--mint-dark);   --ca-light: var(--mint-light); }
+  .metric-card.amber  { --ca: var(--amber);  --ca-dark: var(--amber-dark);  --ca-light: var(--amber-light); }
+  .metric-card-top { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
   .metric-label {
-    font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em;
-    color: var(--text3); margin-bottom: 6px;
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--text2); font-family: var(--font-display);
   }
   .metric-value {
-    font-size: 26px; font-weight: 700; font-family: var(--mono);
-    color: #fff; line-height: 1;
+    font-size: 28px; font-weight: 700; font-family: var(--font-mono);
+    color: var(--text); line-height: 1;
   }
-  .metric-unit { font-size: 13px; color: var(--text2); font-weight: 400; }
+  .metric-unit { font-size: 14px; color: var(--text2); font-weight: 500; }
   .metric-bar {
-    height: 3px; background: var(--bg4); border-radius: 2px;
-    margin-top: 8px; overflow: hidden;
+    height: 8px; background: #000;
+    border-radius: var(--r-pill); margin-top: 10px; overflow: hidden;
+    box-shadow: inset 0 2px 5px rgba(0,0,0,0.9), inset 0 0 0 1px rgba(255,255,255,0.03);
   }
   .metric-bar-fill {
-    height: 100%; border-radius: 2px;
-    transition: width 0.5s ease, background 0.3s;
+    height: 100%; border-radius: var(--r-pill);
+    transition: width 0.5s var(--ease), background 0.3s;
   }
 
-  /* ── Charts ─────────────────────────────────────────────────────────────── */
-  .chart-area {
-    height: 160px; position: relative;
-    display: flex; align-items: flex-end; gap: 1px;
-    overflow: hidden;
-  }
-  .chart-line-svg {
-    position: absolute; inset: 0; width: 100%; height: 100%;
-  }
-  canvas.sparkline {
-    width: 100%; height: 100%;
-  }
-
-  /* ── Terminal ─────────────────────────────────────────────────────────────── */
+  /* ── Terminal (recessed: clay's "void" treatment) ─────────────────────── */
   #terminal-output {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    font-family: var(--mono);
+    background: #000;
+    border-radius: var(--r-md);
+    box-shadow: inset 0 3px 12px rgba(0,0,0,0.9), inset 0 0 0 2px color-mix(in srgb, var(--cyan) 12%, transparent);
+    font-family: var(--font-mono);
     font-size: 12px;
-    line-height: 1.6;
-    padding: 14px;
+    line-height: 1.7;
+    padding: 16px;
     height: 280px;
     overflow-y: auto;
     white-space: pre-wrap;
     word-break: break-all;
   }
-  .term-prompt { color: var(--accent2); }
-  .term-cmd { color: #fff; }
-  .term-out { color: var(--text); }
-  .term-err { color: var(--crit); }
-  .term-info { color: var(--text2); }
-  .term-ok { color: var(--ok); }
-  #terminal-input-row {
-    display: flex; gap: 8px; margin-top: 8px;
-  }
+  .term-prompt { color: var(--cyan); }
+  .term-cmd { color: var(--text); }
+  .term-out { color: var(--text2); }
+  .term-err { color: var(--pink); }
+  .term-info { color: var(--text3); }
+  .term-ok { color: var(--mint); }
+  #terminal-input-row { display: flex; gap: 10px; margin-top: 12px; align-items: center; }
   #terminal-input {
-    flex: 1; background: var(--bg3); border: 1px solid var(--border2);
-    border-radius: var(--radius); padding: 9px 14px;
-    font-family: var(--mono); font-size: 12px; color: #fff;
-    outline: none; transition: border-color 0.15s;
+    flex: 1;
+    background: #000;
+    border-radius: var(--r-md);
+    box-shadow: inset 0 2px 8px rgba(0,0,0,0.9), inset 0 0 0 2px color-mix(in srgb, var(--cyan) 20%, transparent);
+    border: none;
+    padding: 11px 16px;
+    font-family: var(--font-mono); font-size: 12px; color: var(--text);
+    outline: none; transition: box-shadow 0.15s;
   }
-  #terminal-input:focus { border-color: var(--accent); }
+  #terminal-input:focus { box-shadow: inset 0 2px 8px rgba(0,0,0,0.9), inset 0 0 0 2px var(--cyan); }
   #terminal-input::placeholder { color: var(--text3); }
 
-  /* ── Buttons ─────────────────────────────────────────────────────────────── */
+  /* ── Buttons (clay anatomy #3) ───────────────────────────────────────── */
   .btn {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 7px 14px; border-radius: var(--radius);
-    font-family: var(--sans); font-size: 12px; font-weight: 500;
-    cursor: pointer; border: 1px solid transparent;
-    transition: all 0.15s; outline: none;
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 18px; border-radius: var(--r-pill);
+    font-family: var(--font-body); font-size: 12.5px; font-weight: 700;
+    cursor: pointer; border: 2px solid transparent;
+    transition: transform .16s var(--ease), box-shadow .16s var(--ease);
+    outline: none; white-space: nowrap;
   }
+  .btn .icon { width: 14px; height: 14px; }
   .btn:disabled { opacity: 0.4; cursor: not-allowed; }
   .btn-primary {
-    background: var(--accent); color: #fff; border-color: var(--accent);
+    background: linear-gradient(155deg, var(--cyan-light), var(--cyan));
+    color: #031014;
+    box-shadow: 0 4px 0 var(--cyan-dark), 0 7px 16px color-mix(in srgb, var(--cyan) 30%, transparent);
   }
-  .btn-primary:hover:not(:disabled) { background: #3b8fff; box-shadow: var(--glow); }
+  .btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 5px 0 var(--cyan-dark), 0 9px 20px color-mix(in srgb, var(--cyan) 38%, transparent); }
+  .btn-primary:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 1px 0 var(--cyan-dark); }
+
   .btn-ghost {
-    background: var(--bg3); color: var(--text); border-color: var(--border);
+    background: var(--surface2); color: var(--text);
+    border-color: color-mix(in srgb, var(--cyan) 30%, transparent);
+    box-shadow: 0 3px 0 color-mix(in srgb, var(--cyan) 20%, black 60%), 0 5px 12px rgba(0,0,0,0.4);
   }
-  .btn-ghost:hover:not(:disabled) { background: var(--bg4); border-color: var(--border2); }
+  .btn-ghost:hover:not(:disabled) { transform: translateY(-1px); border-color: color-mix(in srgb, var(--cyan) 50%, transparent); }
+  .btn-ghost:active:not(:disabled) { transform: translateY(3px); box-shadow: none; }
+
   .btn-danger {
-    background: rgba(255,59,78,0.15); color: var(--crit); border-color: rgba(255,59,78,0.3);
+    background: linear-gradient(155deg, var(--pink-light), var(--pink));
+    color: #2b0815;
+    box-shadow: 0 4px 0 var(--pink-dark), 0 7px 16px color-mix(in srgb, var(--pink) 30%, transparent);
   }
-  .btn-danger:hover:not(:disabled) { background: rgba(255,59,78,0.25); }
+  .btn-danger:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 5px 0 var(--pink-dark), 0 9px 20px color-mix(in srgb, var(--pink) 38%, transparent); }
+  .btn-danger:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 1px 0 var(--pink-dark); }
+
   .btn-warn {
-    background: rgba(245,166,35,0.15); color: var(--warn); border-color: rgba(245,166,35,0.3);
+    background: linear-gradient(155deg, var(--amber-light), var(--amber));
+    color: #2b1a02;
+    box-shadow: 0 4px 0 var(--amber-dark), 0 7px 16px color-mix(in srgb, var(--amber) 30%, transparent);
   }
-  .btn-sm { padding: 5px 10px; font-size: 11px; }
+  .btn-warn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 5px 0 var(--amber-dark), 0 9px 20px color-mix(in srgb, var(--amber) 38%, transparent); }
+  .btn-warn:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 1px 0 var(--amber-dark); }
+
+  .btn-icon {
+    padding: 8px; border-radius: var(--r-pill);
+    background: var(--surface2); border: 2px solid color-mix(in srgb, var(--pink) 30%, transparent);
+    color: var(--text2);
+  }
+  .btn-icon:hover { color: var(--pink); border-color: color-mix(in srgb, var(--pink) 55%, transparent); transform: scale(1.08); }
+  .btn-icon:active { transform: scale(0.94); }
+
+  .btn-sm { padding: 7px 13px; font-size: 11px; }
 
   /* ── Table ─────────────────────────────────────────────────────────────── */
   .table-wrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; }
   th {
-    text-align: left; padding: 8px 12px;
-    font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em;
-    color: var(--text3); border-bottom: 1px solid var(--border);
+    text-align: left; padding: 10px 14px;
+    font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--text3); border-bottom: 2px solid color-mix(in srgb, var(--cyan) 14%, transparent);
+    font-family: var(--font-display);
   }
-  td { padding: 9px 12px; border-bottom: 1px solid rgba(48,120,200,0.08); }
+  td { padding: 11px 14px; border-bottom: 1px solid color-mix(in srgb, var(--cyan) 6%, transparent); }
   tr:last-child td { border-bottom: none; }
-  tr:hover td { background: var(--bg3); }
-  .td-mono { font-family: var(--mono); font-size: 11px; }
+  tr:hover td { background: var(--surface2); }
+  .td-mono { font-family: var(--font-mono); font-size: 11px; color: var(--text2); }
 
   /* ── Node Grid (overview) ────────────────────────────────────────────────── */
   .overview-grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 18px;
   }
   .overview-node-card {
-    background: var(--bg2); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 16px;
-    cursor: pointer; transition: all 0.15s;
-    position: relative; overflow: hidden;
+    --ca: var(--mint); --ca-dark: var(--mint-dark);
+    background: var(--surface);
+    border-radius: var(--r-lg);
+    border: 3px solid color-mix(in srgb, var(--ca) 30%, transparent);
+    box-shadow:
+      7px 9px 22px color-mix(in srgb, var(--ca) 16%, transparent),
+      -7px -7px 20px color-mix(in srgb, var(--ca) 5%, transparent),
+      inset 0 1px 0 color-mix(in srgb, var(--ca) 22%, transparent);
+    padding: 18px;
+    cursor: pointer;
+    transition: transform .16s var(--ease), box-shadow .16s var(--ease);
+    position: relative;
   }
-  .overview-node-card::before {
-    content: ''; position: absolute; left: 0; top: 0; bottom: 0;
-    width: 3px;
-  }
-  .overview-node-card.online::before { background: var(--ok); }
-  .overview-node-card.offline::before { background: var(--text3); }
-  .overview-node-card.pending::before { background: var(--warn); }
+  .overview-node-card.offline { --ca: var(--grey); --ca-dark: var(--grey-dark); }
+  .overview-node-card.pending { --ca: var(--amber); --ca-dark: var(--amber-dark); }
   .overview-node-card:hover {
-    border-color: var(--border2);
-    transform: translateY(-1px);
-    box-shadow: var(--glow2);
+    transform: translateY(-3px);
+    box-shadow:
+      9px 12px 28px color-mix(in srgb, var(--ca) 24%, transparent),
+      -7px -7px 20px color-mix(in srgb, var(--ca) 6%, transparent),
+      inset 0 1px 0 color-mix(in srgb, var(--ca) 25%, transparent);
   }
-  .overview-node-name { font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 4px; }
-  .overview-node-meta { font-size: 11px; color: var(--text2); font-family: var(--mono); }
+  .ov-card-top { display: flex; align-items: flex-start; gap: 10px; }
+  .overview-node-name { font-family: var(--font-display); font-size: 15px; font-weight: 700; color: var(--text); }
+  .overview-node-meta { font-size: 11px; color: var(--text2); font-family: var(--font-mono); margin-top: 6px; }
+  .ov-delete-btn {
+    position: absolute; top: 14px; right: 14px;
+    width: 28px; height: 28px; border-radius: var(--r-pill);
+    background: var(--surface2); border: 2px solid color-mix(in srgb, var(--pink) 28%, transparent);
+    color: var(--text3);
+    display: flex; align-items: center; justify-content: center;
+    transition: all .15s var(--ease);
+    opacity: 0; transform: scale(0.85);
+  }
+  .overview-node-card:hover .ov-delete-btn { opacity: 1; transform: scale(1); }
+  .ov-delete-btn:hover { color: var(--pink); border-color: var(--pink); transform: scale(1.1) !important; }
+  .ov-delete-btn .icon { width: 13px; height: 13px; }
   .overview-mini-metrics {
-    display: flex; gap: 12px; margin-top: 12px;
-    padding-top: 12px; border-top: 1px solid var(--border);
+    display: flex; gap: 10px; margin-top: 16px;
+    padding-top: 14px; border-top: 2px solid color-mix(in srgb, var(--ca) 14%, transparent);
   }
   .omm { flex: 1; }
-  .omm-lbl { font-size: 9px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.1em; }
-  .omm-val { font-size: 15px; font-weight: 700; font-family: var(--mono); color: #fff; }
+  .omm-lbl { font-size: 9px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.09em; font-weight: 700; }
+  .omm-val { font-size: 16px; font-weight: 700; font-family: var(--font-mono); color: var(--text); margin-top: 2px; }
 
   /* ── Alerts Panel ─────────────────────────────────────────────────────────── */
   .alert-row {
-    display: flex; align-items: center; gap: 10px;
-    padding: 10px 12px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 18px; border-bottom: 1px solid color-mix(in srgb, var(--cyan) 8%, transparent);
   }
   .alert-row:last-child { border-bottom: none; }
   .alert-sev {
-    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+    width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
   }
-  .alert-sev.warning { background: var(--warn); }
-  .alert-sev.critical { background: var(--crit); box-shadow: 0 0 6px var(--crit); }
-  .alert-sev.info { background: var(--accent); }
-  .alert-msg { flex: 1; font-size: 12px; }
-  .alert-node { font-size: 11px; color: var(--text2); font-family: var(--mono); }
-  .alert-time { font-size: 10px; color: var(--text3); }
+  .alert-sev.warning  { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+  .alert-sev.critical { background: var(--pink);  box-shadow: 0 0 8px var(--pink); }
+  .alert-sev.info     { background: var(--violet); box-shadow: 0 0 8px var(--violet); }
+  .alert-msg { flex: 1; font-size: 12.5px; font-weight: 500; }
+  .alert-node { font-size: 11px; color: var(--text2); font-family: var(--font-mono); margin-top: 2px; }
+  .alert-time { font-size: 10px; color: var(--text3); font-weight: 600; }
 
   /* ── Login ────────────────────────────────────────────────────────────────── */
   #login-screen {
     position: fixed; inset: 0; z-index: 1000;
-    background: var(--bg);
+    background:
+      radial-gradient(circle at 20% 20%, color-mix(in srgb, var(--cyan) 8%, transparent), transparent 40%),
+      radial-gradient(circle at 80% 80%, color-mix(in srgb, var(--violet) 8%, transparent), transparent 40%),
+      var(--bg);
     display: flex; align-items: center; justify-content: center;
   }
   .login-box {
-    width: 360px;
-    background: var(--bg2); border: 1px solid var(--border);
-    border-radius: 12px; padding: 36px 32px;
-    box-shadow: 0 0 60px rgba(30,127,255,0.1);
+    --ca: var(--cyan); --ca-dark: var(--cyan-dark);
+    width: 380px;
+    background: var(--surface);
+    border-radius: var(--r-lg);
+    border: 3px solid color-mix(in srgb, var(--cyan) 32%, transparent);
+    box-shadow:
+      10px 12px 30px color-mix(in srgb, var(--cyan) 18%, transparent),
+      -8px -8px 24px color-mix(in srgb, var(--violet) 8%, transparent),
+      inset 0 1px 0 color-mix(in srgb, var(--cyan) 25%, transparent);
+    padding: 38px 34px;
   }
-  .login-logo {
-    display: flex; align-items: center; gap: 10px; margin-bottom: 28px;
-  }
-  .login-logo-icon {
-    width: 36px; height: 36px;
-    background: linear-gradient(135deg, var(--accent), var(--accent2));
-    border-radius: 10px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 18px;
-  }
-  .login-logo-text { font-size: 20px; font-weight: 700; color: #fff; }
-  .login-subtitle { font-size: 11px; color: var(--text3); margin-bottom: 28px; }
+  .login-logo { display: flex; align-items: center; gap: 14px; margin-bottom: 30px; }
+  .login-logo-text { font-family: var(--font-display); font-size: 21px; font-weight: 700; color: var(--text); }
+  .login-subtitle { font-size: 11.5px; color: var(--text3); margin-bottom: 30px; font-weight: 500; }
   .form-group { margin-bottom: 16px; }
-  .form-label { display: block; font-size: 11px; color: var(--text2); margin-bottom: 6px; font-weight: 500; }
+  .form-label { display: block; font-size: 11px; color: var(--text2); margin-bottom: 7px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
   .form-input {
-    width: 100%; background: var(--bg3); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 10px 14px;
-    font-family: var(--sans); font-size: 13px; color: #fff;
-    outline: none; transition: border-color 0.15s;
+    width: 100%;
+    background: #000;
+    border-radius: var(--r-md);
+    box-shadow: inset 0 2px 8px rgba(0,0,0,0.9), inset 0 0 0 2px color-mix(in srgb, var(--cyan) 18%, transparent);
+    border: none;
+    padding: 11px 16px;
+    font-family: var(--font-body); font-size: 13px; color: var(--text);
+    outline: none; transition: box-shadow 0.15s;
   }
-  .form-input:focus { border-color: var(--accent); }
-  #login-error { color: var(--crit); font-size: 12px; margin-bottom: 12px; min-height: 18px; }
-  #login-btn { width: 100%; justify-content: center; padding: 10px; font-size: 13px; }
+  .form-input:focus { box-shadow: inset 0 2px 8px rgba(0,0,0,0.9), inset 0 0 0 2px var(--cyan); }
+  textarea.form-input { box-shadow: inset 0 2px 8px rgba(0,0,0,0.9), inset 0 0 0 2px color-mix(in srgb, var(--cyan) 18%, transparent); resize: vertical; font-family: var(--font-mono); }
+  select.form-input { cursor: pointer; }
+  #login-error { color: var(--pink); font-size: 12px; margin-bottom: 14px; min-height: 18px; font-weight: 600; }
+  #login-btn { width: 100%; justify-content: center; padding: 12px; font-size: 13.5px; }
 
   /* ── Logs ───────────────────────────────────────────────────────────────── */
   .log-entry {
-    display: flex; gap: 10px;
-    padding: 7px 12px; border-bottom: 1px solid rgba(48,120,200,0.06);
-    font-family: var(--mono); font-size: 11px;
+    display: flex; gap: 12px; align-items: center;
+    padding: 10px 18px; border-bottom: 1px solid color-mix(in srgb, var(--cyan) 6%, transparent);
+    font-family: var(--font-mono); font-size: 11px;
   }
   .log-time { color: var(--text3); flex-shrink: 0; }
-  .log-action { color: var(--accent2); flex-shrink: 0; min-width: 180px; }
-  .log-detail { color: var(--text); }
+  .log-action { color: var(--cyan); flex-shrink: 0; min-width: 170px; font-weight: 600; }
+  .log-detail { color: var(--text2); }
 
   /* ── Spinners / Loading ──────────────────────────────────────────────────── */
   .loading {
-    display: flex; align-items: center; gap: 8px;
+    display: flex; align-items: center; gap: 10px;
     color: var(--text2); font-size: 12px;
-    padding: 20px;
+    padding: 24px;
   }
   .spinner {
-    width: 14px; height: 14px;
-    border: 2px solid var(--border);
-    border-top-color: var(--accent);
+    width: 16px; height: 16px;
+    border: 2.5px solid color-mix(in srgb, var(--cyan) 20%, transparent);
+    border-top-color: var(--cyan);
     border-radius: 50%;
     animation: spin 0.7s linear infinite;
   }
@@ -417,42 +541,44 @@
   /* ── Modal ──────────────────────────────────────────────────────────────── */
   .modal-overlay {
     position: fixed; inset: 0; z-index: 500;
-    background: rgba(7,11,16,0.85); backdrop-filter: blur(4px);
+    background: rgba(0,0,0,0.82); backdrop-filter: blur(6px);
     display: flex; align-items: center; justify-content: center;
   }
   .modal-overlay.hidden { display: none; }
   .modal {
-    background: var(--bg2); border: 1px solid var(--border2);
-    border-radius: 12px; padding: 28px; width: 480px; max-width: 95vw;
+    --ca: var(--cyan); --ca-dark: var(--cyan-dark);
+    background: var(--surface);
+    border-radius: var(--r-lg);
+    border: 3px solid color-mix(in srgb, var(--ca) 35%, transparent);
+    box-shadow:
+      10px 12px 30px color-mix(in srgb, var(--ca) 20%, transparent),
+      inset 0 1px 0 color-mix(in srgb, var(--ca) 25%, transparent);
+    padding: 30px; width: 480px; max-width: 92vw;
   }
-  .modal-title { font-size: 15px; font-weight: 600; margin-bottom: 16px; color: #fff; }
-
-  /* ── Chart ──────────────────────────────────────────────────────────────── */
-  .sparkline-wrap { position: relative; height: 80px; }
-  canvas { display: block; }
+  .modal.danger { --ca: var(--pink); --ca-dark: var(--pink-dark); }
+  .modal-title-row { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+  .modal-title { font-family: var(--font-display); font-size: 16px; font-weight: 700; color: var(--text); }
 
   /* ── Empty state ─────────────────────────────────────────────────────────── */
-  .empty { padding: 40px; text-align: center; color: var(--text3); }
-  .empty-icon { font-size: 32px; margin-bottom: 8px; }
+  .empty { padding: 48px; text-align: center; color: var(--text3); }
+  .empty-icon-wrap { display: flex; justify-content: center; margin-bottom: 14px; }
+  .empty-text { font-size: 13px; font-weight: 500; }
 
-  /* ── Tabs ────────────────────────────────────────────────────────────────── */
-  .tabs {
-    display: flex; gap: 4px;
-    background: var(--bg3); border-radius: var(--radius);
-    padding: 3px; width: fit-content;
-  }
-  .tab {
-    padding: 5px 14px; border-radius: 6px;
-    font-size: 12px; font-weight: 500; cursor: pointer;
-    color: var(--text2); transition: all 0.15s;
-  }
-  .tab:hover { color: var(--text); }
-  .tab.active { background: var(--bg); color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
-
-  /* ── Overview tab specific ─────────────────────────────────────────────── */
+  /* ── Section title ──────────────────────────────────────────────────────── */
   .section-title {
-    font-size: 10px; font-weight: 600; text-transform: uppercase;
-    letter-spacing: 0.1em; color: var(--text3); margin-bottom: 12px;
+    font-family: var(--font-display);
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.1em; color: var(--text3);
+  }
+  .section-row { display: flex; align-items: center; justify-content: space-between; }
+
+  /* ── Pills/tags ─────────────────────────────────────────────────────────── */
+  .pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 11px; border-radius: var(--r-pill);
+    border: 2px solid color-mix(in srgb, var(--cyan) 50%, transparent);
+    background: rgba(255,255,255,0.05);
+    color: var(--cyan); font-size: 10px; font-weight: 700;
   }
 </style>
 </head>
@@ -462,7 +588,7 @@
 <div id="login-screen">
   <div class="login-box">
     <div class="login-logo">
-      <div class="login-logo-icon">⬡</div>
+      <div class="icon-badge brand" id="login-icon-badge" data-icon="brand"></div>
       <div class="login-logo-text">PiCommand</div>
     </div>
     <div class="login-subtitle">Secure Remote Node Management</div>
@@ -482,7 +608,7 @@
 <!-- Main App -->
 <div id="topbar">
   <div class="logo">
-    <div class="logo-icon">⬡</div>
+    <div class="icon-badge brand sm" id="topbar-icon-badge" data-icon="brand"></div>
     PiCommand
   </div>
   <div id="global-stats">
@@ -500,11 +626,11 @@
     </div>
   </div>
   <div class="topbar-sep"></div>
-  <div id="alert-badge" class="hidden">⚠ <span id="alert-count">0</span> Active</div>
+  <div id="alert-badge" class="hidden"></div>
   <div class="status-dot" id="ws-dot" title="Server connection"></div>
   <div class="topbar-user" id="topbar-user">
     <span id="username-display">—</span>
-    <span style="color:var(--text3)">▾</span>
+    <span class="nav-icon-wrap" id="topbar-chevron" data-icon="chevron"></span>
   </div>
 </div>
 
@@ -512,23 +638,25 @@
   <!-- Sidebar -->
   <div id="sidebar">
     <div class="sidebar-section">Navigation</div>
-    <div class="node-item" id="nav-overview" onclick="showOverview()">
-      <div class="node-status-dot online" style="background:var(--accent);box-shadow:none;"></div>
-      <span class="node-name">Overview</span>
+    <div style="padding:0 10px">
+      <div class="node-item" id="nav-overview" onclick="showOverview()">
+        <span class="nav-icon-wrap" data-icon="grid"></span>
+        <span class="node-name">Overview</span>
+      </div>
+      <div class="node-item" id="nav-alerts" onclick="showAlertsView()">
+        <span class="nav-icon-wrap" data-icon="bell"></span>
+        <span class="node-name">Alerts</span>
+      </div>
+      <div class="node-item" id="nav-audit" onclick="showAuditView()">
+        <span class="nav-icon-wrap" data-icon="clipboard"></span>
+        <span class="node-name">Audit Log</span>
+      </div>
+      <div class="node-item" id="nav-users" onclick="showUsersView()">
+        <span class="nav-icon-wrap" data-icon="users"></span>
+        <span class="node-name">Users</span>
+      </div>
     </div>
-    <div class="node-item" id="nav-alerts" onclick="showAlertsView()">
-      <div class="node-status-dot" style="background:var(--warn);box-shadow:none;"></div>
-      <span class="node-name">Alerts</span>
-    </div>
-    <div class="node-item" id="nav-audit" onclick="showAuditView()">
-      <div class="node-status-dot" style="background:var(--text3);box-shadow:none;"></div>
-      <span class="node-name">Audit Log</span>
-    </div>
-    <div class="node-item" id="nav-users" onclick="showUsersView()">
-      <div class="node-status-dot" style="background:var(--text3);box-shadow:none;"></div>
-      <span class="node-name">Users</span>
-    </div>
-    <div class="sidebar-section" style="margin-top:8px">Nodes</div>
+    <div class="sidebar-section" style="margin-top:10px">Nodes</div>
     <div id="node-list"></div>
   </div>
 
@@ -545,7 +673,8 @@
     <!-- Node Detail View -->
     <div class="view" id="view-node">
       <!-- Node header -->
-      <div id="node-header">
+      <div class="card" id="node-header">
+        <div class="icon-badge" id="node-header-badge" style="margin-right:2px" data-icon="server"></div>
         <div>
           <div style="display:flex;align-items:center;gap:10px">
             <span class="node-title" id="nh-name">—</span>
@@ -554,47 +683,60 @@
           <div class="node-subtitle" id="nh-sub">—</div>
         </div>
         <div class="node-actions">
-          <button class="btn btn-ghost btn-sm" onclick="refreshNode()">↻ Refresh</button>
-          <button class="btn btn-warn btn-sm" id="btn-reboot" onclick="rebootNode()">⏻ Reboot</button>
+          <button class="btn btn-ghost btn-sm" onclick="refreshNode()" data-icon-btn="refresh">Refresh</button>
+          <button class="btn btn-warn btn-sm" id="btn-reboot" onclick="rebootNode()" data-icon-btn="power">Reboot</button>
+          <button class="btn btn-danger btn-sm" id="btn-remove" onclick="openDeleteNode(currentNodeId)" data-icon-btn="trash">Remove</button>
         </div>
       </div>
 
       <!-- Metric cards -->
       <div class="metric-grid" id="metric-grid">
         <div class="metric-card">
-          <div class="metric-label">CPU</div>
+          <div class="metric-card-top">
+            <div class="icon-badge sm" data-icon="cpu"></div>
+            <div class="metric-label">CPU</div>
+          </div>
           <div class="metric-value" id="m-cpu">—<span class="metric-unit">%</span></div>
-          <div class="metric-bar"><div class="metric-bar-fill" id="mbar-cpu" style="width:0%"></div></div>
+          <div class="metric-bar"><div class="metric-bar-fill" id="mbar-cpu" style="width:0%;background:var(--cyan);box-shadow:0 0 10px var(--cyan)"></div></div>
         </div>
-        <div class="metric-card">
-          <div class="metric-label">RAM</div>
+        <div class="metric-card violet">
+          <div class="metric-card-top">
+            <div class="icon-badge sm violet" data-icon="ram"></div>
+            <div class="metric-label">RAM</div>
+          </div>
           <div class="metric-value" id="m-ram">—<span class="metric-unit">%</span></div>
-          <div class="metric-bar"><div class="metric-bar-fill" id="mbar-ram" style="width:0%"></div></div>
+          <div class="metric-bar"><div class="metric-bar-fill" id="mbar-ram" style="width:0%;background:var(--violet);box-shadow:0 0 10px var(--violet)"></div></div>
         </div>
-        <div class="metric-card">
-          <div class="metric-label">Disk</div>
+        <div class="metric-card mint">
+          <div class="metric-card-top">
+            <div class="icon-badge sm mint" data-icon="disk"></div>
+            <div class="metric-label">Disk</div>
+          </div>
           <div class="metric-value" id="m-disk">—<span class="metric-unit">%</span></div>
-          <div class="metric-bar"><div class="metric-bar-fill" id="mbar-disk" style="width:0%"></div></div>
+          <div class="metric-bar"><div class="metric-bar-fill" id="mbar-disk" style="width:0%;background:var(--mint);box-shadow:0 0 10px var(--mint)"></div></div>
         </div>
-        <div class="metric-card">
-          <div class="metric-label">Temperature</div>
+        <div class="metric-card amber">
+          <div class="metric-card-top">
+            <div class="icon-badge sm amber" data-icon="temp"></div>
+            <div class="metric-label">Temperature</div>
+          </div>
           <div class="metric-value" id="m-temp">—<span class="metric-unit">°C</span></div>
-          <div class="metric-bar"><div class="metric-bar-fill" id="mbar-temp" style="width:0%;background:var(--warn)"></div></div>
+          <div class="metric-bar"><div class="metric-bar-fill" id="mbar-temp" style="width:0%;background:var(--amber);box-shadow:0 0 10px var(--amber)"></div></div>
         </div>
       </div>
 
       <!-- Charts + Terminal -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
         <div class="card">
           <div class="card-header">
-            <span class="card-title">CPU & RAM History</span>
-            <span style="margin-left:auto;font-size:10px;color:var(--text3)">last 60 readings</span>
+            <span class="card-title">CPU &amp; RAM History</span>
+            <span style="margin-left:auto;font-size:10px;color:var(--text3);font-weight:600">last 60 readings</span>
           </div>
-          <div class="card-body" style="padding-bottom:12px">
+          <div class="card-body" style="padding-bottom:14px">
             <canvas id="chart-cpu-ram" height="80"></canvas>
           </div>
         </div>
-        <div class="card">
+        <div class="card accent-violet">
           <div class="card-header">
             <span class="card-title">System Info</span>
           </div>
@@ -609,8 +751,9 @@
       <!-- Terminal -->
       <div class="card">
         <div class="card-header">
+          <div class="icon-badge sm" data-icon="terminal"></div>
           <span class="card-title">Remote Terminal</span>
-          <div style="margin-left:auto;display:flex;gap:6px">
+          <div style="margin-left:auto;display:flex;gap:8px">
             <button class="btn btn-ghost btn-sm" onclick="quickCmd('sudo apt update')">apt update</button>
             <button class="btn btn-ghost btn-sm" onclick="quickCmd('df -h')">disk usage</button>
             <button class="btn btn-ghost btn-sm" onclick="quickCmd('journalctl -n 50 --no-pager')">logs</button>
@@ -620,7 +763,7 @@
         <div class="card-body">
           <div id="terminal-output"></div>
           <div id="terminal-input-row">
-            <span style="color:var(--accent2);font-family:var(--mono);font-size:12px;padding:9px 0;white-space:nowrap">$ </span>
+            <span style="color:var(--cyan);font-family:var(--font-mono);font-size:13px;white-space:nowrap;font-weight:700">$</span>
             <input class="form-input" id="terminal-input" type="text" placeholder="Enter command…" autocomplete="off">
             <button class="btn btn-primary" id="btn-run" onclick="runCommand()">Run</button>
           </div>
@@ -628,8 +771,8 @@
       </div>
 
       <!-- Command History + Services -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-        <div class="card">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
+        <div class="card accent-mint">
           <div class="card-header"><span class="card-title">Command History</span></div>
           <div class="table-wrap">
             <table>
@@ -638,7 +781,7 @@
             </table>
           </div>
         </div>
-        <div class="card">
+        <div class="card accent-amber">
           <div class="card-header"><span class="card-title">Services</span></div>
           <div class="table-wrap">
             <table>
@@ -653,7 +796,7 @@
     <!-- Alerts View -->
     <div class="view" id="view-alerts">
       <div class="section-title">Active Alerts</div>
-      <div class="card">
+      <div class="card accent-pink">
         <div id="alerts-list"><div class="loading"><div class="spinner"></div> Loading…</div></div>
       </div>
     </div>
@@ -661,7 +804,7 @@
     <!-- Audit Log View -->
     <div class="view" id="view-audit">
       <div class="section-title">Audit Log</div>
-      <div class="card">
+      <div class="card accent-violet">
         <div id="audit-list"><div class="loading"><div class="spinner"></div> Loading…</div></div>
       </div>
     </div>
@@ -669,10 +812,10 @@
     <!-- Users View -->
     <div class="view" id="view-users">
       <div class="section-title">User Management</div>
-      <div class="card">
+      <div class="card accent-amber">
         <div class="card-header" style="justify-content:space-between">
           <span class="card-title">Users</span>
-          <button class="btn btn-primary btn-sm" onclick="openAddUser()">+ Add User</button>
+          <button class="btn btn-primary btn-sm" onclick="openAddUser()" data-icon-btn="plus">Add User</button>
         </div>
         <div class="table-wrap">
           <table>
@@ -681,13 +824,13 @@
           </table>
         </div>
       </div>
-      <div class="card" style="margin-top:0">
+      <div class="card">
         <div class="card-header"><span class="card-title">Change My Password</span></div>
-        <div class="card-body" style="display:flex;flex-direction:column;gap:10px;max-width:400px">
+        <div class="card-body" style="display:flex;flex-direction:column;gap:12px;max-width:400px">
           <input class="form-input" id="pw-old" type="password" placeholder="Current password">
           <input class="form-input" id="pw-new" type="password" placeholder="New password (min 8 chars)">
           <input class="form-input" id="pw-confirm" type="password" placeholder="Confirm new password">
-          <div id="pw-msg" style="font-size:12px;min-height:18px"></div>
+          <div id="pw-msg" style="font-size:12px;min-height:18px;font-weight:600"></div>
           <button class="btn btn-ghost btn-sm" onclick="changePassword()" style="width:fit-content">Update Password</button>
         </div>
       </div>
@@ -697,8 +840,11 @@
 
 <!-- Add User Modal -->
 <div class="modal-overlay hidden" id="add-user-modal">
-  <div class="modal">
-    <div class="modal-title">Add User</div>
+  <div class="modal accent-amber">
+    <div class="modal-title-row">
+      <div class="icon-badge amber" data-icon="users"></div>
+      <div class="modal-title">Add User</div>
+    </div>
     <div class="form-group">
       <label class="form-label">Username</label>
       <input class="form-input" id="add-user-username" placeholder="username">
@@ -708,7 +854,7 @@
       <input class="form-input" id="add-user-password" type="password" placeholder="min 8 characters">
     </div>
     <div class="form-group">
-      <label class="form-label">Email (optional)</label>
+      <label class="form-label">Email</label>
       <input class="form-input" id="add-user-email" type="email" placeholder="user@example.com">
     </div>
     <div class="form-group">
@@ -719,8 +865,8 @@
         <option value="admin">Admin — full access</option>
       </select>
     </div>
-    <div id="add-user-err" style="color:var(--crit);font-size:12px;min-height:16px"></div>
-    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+    <div id="add-user-err" style="color:var(--pink);font-size:12px;min-height:16px;font-weight:600"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
       <button class="btn btn-ghost" onclick="closeAddUser()">Cancel</button>
       <button class="btn btn-primary" onclick="submitAddUser()">Create User</button>
     </div>
@@ -730,7 +876,10 @@
 <!-- Register Node Modal -->
 <div class="modal-overlay hidden" id="register-modal">
   <div class="modal">
-    <div class="modal-title">Register New Node</div>
+    <div class="modal-title-row">
+      <div class="icon-badge" data-icon="server"></div>
+      <div class="modal-title">Register New Node</div>
+    </div>
     <div class="form-group">
       <label class="form-label">Node ID (slug)</label>
       <input class="form-input" id="reg-node-id" placeholder="garage-pi">
@@ -747,14 +896,76 @@
       <label class="form-label">Location</label>
       <input class="form-input" id="reg-location" placeholder="Garage">
     </div>
-    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
       <button class="btn btn-ghost" onclick="closeRegister()">Cancel</button>
       <button class="btn btn-primary" onclick="submitRegister()">Register</button>
     </div>
   </div>
 </div>
 
+<!-- Remove Node Modal -->
+<div class="modal-overlay hidden" id="delete-node-modal">
+  <div class="modal danger">
+    <div class="modal-title-row">
+      <div class="icon-badge pink" data-icon="trash"></div>
+      <div class="modal-title">Remove Node</div>
+    </div>
+    <p style="font-size:12.5px;color:var(--text2);line-height:1.6;margin-bottom:6px">
+      This permanently deletes <strong style="color:var(--text)" id="del-node-name">—</strong>
+      and all of its metrics, command history, and alerts. The Pi's agent will be rejected on its next
+      connection attempt. This cannot be undone.
+    </p>
+    <div class="form-group" style="margin-top:16px">
+      <label class="form-label">Type <span style="color:var(--pink)" id="del-node-id-label">node-id</span> to confirm</label>
+      <input class="form-input" id="del-confirm-input" placeholder="node-id" autocomplete="off">
+    </div>
+    <div id="delete-node-err" style="color:var(--pink);font-size:12px;min-height:16px;font-weight:600"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+      <button class="btn btn-ghost" onclick="closeDeleteNode()">Cancel</button>
+      <button class="btn btn-danger" id="del-confirm-btn" onclick="confirmDeleteNode()" disabled data-icon-btn="trash">Delete Permanently</button>
+    </div>
+  </div>
+</div>
+
 <script>
+// ════════════════════════════════════════════════════════════════════════════
+// Icon set — minimal stroke icons, injected wherever data-icon/data-icon-btn
+// attributes are found. Keeps markup clean while giving every clay badge and
+// button its icon per the design system.
+// ════════════════════════════════════════════════════════════════════════════
+const ICONS = {
+  brand: `<svg class="icon" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2.2"/><circle cx="5" cy="17" r="2.2"/><circle cx="19" cy="17" r="2.2"/><line x1="12" y1="7.2" x2="6.4" y2="15.3"/><line x1="12" y1="7.2" x2="17.6" y2="15.3"/></svg>`,
+  grid: `<svg class="icon" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg>`,
+  bell: `<svg class="icon" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 10a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>`,
+  clipboard: `<svg class="icon" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="2"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>`,
+  users: `<svg class="icon" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="8" r="2.4"/><path d="M16 14.2c2.6.4 4.5 2.7 4.5 5.8"/></svg>`,
+  cpu: `<svg class="icon" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>`,
+  ram: `<svg class="icon" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="9" rx="1.5"/><line x1="7" y1="8" x2="7" y2="5"/><line x1="12" y1="8" x2="12" y2="5"/><line x1="17" y1="8" x2="17" y2="5"/></svg>`,
+  disk: `<svg class="icon" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>`,
+  temp: `<svg class="icon" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 14.5V4a2 2 0 0 0-4 0v10.5a4 4 0 1 0 4 0Z"/></svg>`,
+  power: `<svg class="icon" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="3" x2="12" y2="11"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/></svg>`,
+  refresh: `<svg class="icon" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11a9 9 0 0 1 15-6.7L21 7"/><path d="M21 3v4h-4"/><path d="M21 13a9 9 0 0 1-15 6.7L3 17"/><path d="M3 21v-4h4"/></svg>`,
+  trash: `<svg class="icon" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="7" x2="20" y2="7"/><path d="M6 7V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v3"/><path d="M19 7l-1 13a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 7"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>`,
+  terminal: `<svg class="icon" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><polyline points="7,9 11,12 7,15"/><line x1="13" y1="15" x2="17" y2="15"/></svg>`,
+  plus: `<svg class="icon" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+  chevron: `<svg class="icon" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6,9 12,15 18,9"/></svg>`,
+  server: `<svg class="icon" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><line x1="7" y1="7.5" x2="7.01" y2="7.5"/><line x1="7" y1="16.5" x2="7.01" y2="16.5"/></svg>`,
+  check: `<svg class="icon" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4,12 9,17 20,6"/></svg>`,
+};
+
+function injectIcons(root = document) {
+  root.querySelectorAll('[data-icon]').forEach(el => {
+    const name = el.getAttribute('data-icon');
+    if (ICONS[name]) el.innerHTML = ICONS[name];
+  });
+  root.querySelectorAll('[data-icon-btn]').forEach(el => {
+    const name = el.getAttribute('data-icon-btn');
+    if (ICONS[name] && !el.querySelector('svg')) {
+      el.insertAdjacentHTML('afterbegin', ICONS[name]);
+    }
+  });
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // State
 // ════════════════════════════════════════════════════════════════════════════
@@ -810,6 +1021,13 @@ function barColor(v) {
   if (v >= 70) return 'var(--warn)';
   return 'var(--ok)';
 }
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>');
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // Auth
@@ -831,6 +1049,7 @@ async function login() {
     const data = await r.json();
     token = data.access_token;
     localStorage.setItem('picommand_token', token);
+    if (data.refresh_token) localStorage.setItem('picommand_refresh', data.refresh_token);
     document.getElementById('login-screen').style.display = 'none';
     await init();
   } catch (e) {
@@ -841,6 +1060,7 @@ async function login() {
 function logout() {
   token = '';
   localStorage.removeItem('picommand_token');
+  localStorage.removeItem('picommand_refresh');
   location.reload();
 }
 
@@ -877,7 +1097,7 @@ async function updateStats() {
   document.getElementById('stat-total').textContent = s.nodes_total;
   document.getElementById('stat-alerts').textContent = s.alerts_active;
   const badge = document.getElementById('alert-badge');
-  document.getElementById('alert-count').textContent = s.alerts_active;
+  badge.innerHTML = `${ICONS.bell}<span id="alert-count">${s.alerts_active}</span> Active`;
   badge.classList.toggle('hidden', s.alerts_active === 0);
 }
 
@@ -887,7 +1107,6 @@ async function updateStats() {
 function startSSE() {
   if (eventSource) { eventSource.close(); }
   // Use fetch-based polling as fallback since SSE needs auth header
-  // Real deployment would use EventSource with a session cookie or query token
   setInterval(async () => {
     await loadNodes();
     if (currentNodeId) await refreshNodeMetrics();
@@ -905,7 +1124,7 @@ function renderSidebar() {
   const nodeArr = Object.values(nodes).sort((a, b) => a.display_name.localeCompare(b.display_name));
 
   if (!nodeArr.length) {
-    list.innerHTML = '<div style="padding:12px 14px;color:var(--text3);font-size:11px">No nodes registered</div>';
+    list.innerHTML = '<div style="padding:12px 14px;color:var(--text3);font-size:11px;font-weight:500">No nodes registered</div>';
     return;
   }
 
@@ -926,7 +1145,6 @@ function renderSidebar() {
 function setView(id) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.getElementById('view-' + id).classList.add('active');
-  // Sidebar nav highlight
   document.querySelectorAll('.node-item[id^="nav-"]').forEach(el => el.classList.remove('active'));
 }
 
@@ -942,7 +1160,12 @@ async function renderOverviewGrid() {
   const grid = document.getElementById('overview-grid');
   const nodeArr = Object.values(nodes);
   if (!nodeArr.length) {
-    grid.innerHTML = `<div class="empty"><div class="empty-icon">🔌</div><div>No nodes registered</div><div style="margin-top:12px"><button class="btn btn-primary" onclick="openRegister()">+ Register Node</button></div></div>`;
+    grid.innerHTML = `<div class="empty">
+      <div class="empty-icon-wrap"><div class="icon-badge brand" style="width:48px;height:48px;border-radius:20px">${ICONS.server}</div></div>
+      <div class="empty-text">No nodes registered</div>
+      <div style="margin-top:16px"><button class="btn btn-primary" onclick="openRegister()" data-icon-btn="plus">Register Node</button></div>
+    </div>`;
+    injectIcons(grid);
     return;
   }
 
@@ -958,12 +1181,18 @@ async function renderOverviewGrid() {
     const st = n.is_online ? 'online' : n.status;
     return `
       <div class="overview-node-card ${st}" onclick="showNode('${n.node_id}')">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-          <span class="overview-node-name">${n.display_name}</span>
-          <span class="badge ${st}">${st}</span>
+        <button class="ov-delete-btn" title="Remove node" onclick="event.stopPropagation(); openDeleteNode('${n.node_id}')">${ICONS.trash}</button>
+        <div class="ov-card-top">
+          <div class="icon-badge sm ${st === 'online' ? 'mint' : st === 'pending' ? 'amber' : ''}">${ICONS.server}</div>
+          <div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="overview-node-name">${n.display_name}</span>
+            </div>
+            <span class="badge ${st}" style="margin-top:6px;display:inline-block">${st}</span>
+          </div>
         </div>
         <div class="overview-node-meta">${n.hostname || n.node_id}${n.location ? ' · ' + n.location : ''}</div>
-        ${n.pi_model ? `<div style="font-size:10px;color:var(--text3);margin-top:2px">${n.pi_model}</div>` : ''}
+        ${n.pi_model ? `<div style="font-size:10px;color:var(--text3);margin-top:3px;font-weight:500">${n.pi_model}</div>` : ''}
         <div class="overview-mini-metrics">
           <div class="omm">
             <div class="omm-lbl">CPU</div>
@@ -995,7 +1224,6 @@ async function showNode(nodeId) {
   const node = nodes[nodeId];
   if (!node) return;
 
-  // Header
   document.getElementById('nh-name').textContent = node.display_name;
   const badge = document.getElementById('nh-badge');
   badge.textContent = node.is_online ? 'Online' : node.status;
@@ -1004,7 +1232,6 @@ async function showNode(nodeId) {
     [node.node_id, node.hostname, node.os_version, node.arch].filter(Boolean).join(' · ');
   document.getElementById('btn-reboot').disabled = !node.is_online;
 
-  // Sysinfo
   renderSysinfo(node);
   initChart();
   await refreshNodeMetrics();
@@ -1022,11 +1249,12 @@ function renderSysinfo(node) {
     ['IP', node.ip_address || '—'],
     ['Location', node.location || '—'],
     ['SSH Port', node.ssh_tunnel_port ? `:${node.ssh_tunnel_port}` : '—'],
+    ['Agent Version', node.agent_version || '—'],
     ['Last Seen', node.last_seen ? fmtDate(node.last_seen) : '—'],
     ['Tags', (node.tags || []).join(', ') || '—'],
   ];
   document.getElementById('sysinfo-table').innerHTML = rows.map(([k, v]) =>
-    `<tr><td style="color:var(--text3);font-size:11px;width:40%">${k}</td><td class="td-mono">${v}</td></tr>`
+    `<tr><td style="color:var(--text3);font-size:11px;width:40%;font-weight:600">${k}</td><td class="td-mono">${v}</td></tr>`
   ).join('');
 }
 
@@ -1043,7 +1271,7 @@ async function refreshNodeMetrics() {
     const el = document.getElementById(id);
     if (el && v != null) {
       el.style.width = Math.min(100, v) + '%';
-      el.style.background = color || barColor(v);
+      if (color) { el.style.background = color; el.style.boxShadow = `0 0 10px ${color}`; }
     }
   };
 
@@ -1054,9 +1282,8 @@ async function refreshNodeMetrics() {
   setBar('mbar-cpu', m.cpu_percent);
   setBar('mbar-ram', m.ram_percent);
   setBar('mbar-disk', m.disk_percent);
-  setBar('mbar-temp', m.cpu_temp_c ? (m.cpu_temp_c / 85 * 100) : 0, m.cpu_temp_c >= 70 ? 'var(--crit)' : 'var(--warn)');
+  setBar('mbar-temp', m.cpu_temp_c ? (m.cpu_temp_c / 85 * 100) : 0);
 
-  // History for chart
   const key = currentNodeId;
   if (!chartHistory[key]) chartHistory[key] = { cpu: [], ram: [], times: [] };
   const h = chartHistory[key];
@@ -1112,35 +1339,35 @@ function updateChart() {
       if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     });
     ctx.strokeStyle = color;
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = 2;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 6;
     ctx.stroke();
+    ctx.shadowBlur = 0;
 
-    // Fill under
     ctx.lineTo((data.length - 1) * step, H);
     ctx.lineTo(0, H);
     ctx.closePath();
-    ctx.fillStyle = color.replace(')', ',0.08)').replace('rgb', 'rgba');
+    ctx.fillStyle = color.replace(')', ',0.10)').replace('rgb', 'rgba');
     ctx.fill();
   };
 
-  // Grid lines
-  ctx.strokeStyle = 'rgba(48,120,200,0.1)';
+  ctx.strokeStyle = 'rgba(61,213,255,0.10)';
   ctx.lineWidth = 1;
   [25, 50, 75].forEach(pct => {
     const y = H - (pct / 100) * H;
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
-    ctx.fillStyle = 'rgba(107,138,170,0.5)';
+    ctx.fillStyle = 'rgba(154,154,168,0.6)';
     ctx.font = '8px JetBrains Mono';
     ctx.fillText(pct + '%', 4, y - 2);
   });
 
-  drawLine(h.ram, 'rgb(0,212,170)');
-  drawLine(h.cpu, 'rgb(30,127,255)');
+  drawLine(h.ram, 'rgb(181,99,255)');
+  drawLine(h.cpu, 'rgb(61,213,255)');
 
-  // Legend
-  ctx.font = '9px Space Grotesk';
-  ctx.fillStyle = 'rgb(30,127,255)'; ctx.fillText('CPU', W - 50, 12);
-  ctx.fillStyle = 'rgb(0,212,170)'; ctx.fillText('RAM', W - 28, 12);
+  ctx.font = '600 9px Inter';
+  ctx.fillStyle = 'rgb(61,213,255)'; ctx.fillText('CPU', W - 54, 12);
+  ctx.fillStyle = 'rgb(181,99,255)'; ctx.fillText('RAM', W - 30, 12);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1182,7 +1409,7 @@ async function runCommand() {
       termAppend(`<div class="term-err">${escHtml(result.stderr)}</div>`);
     }
     if (result.exit_code === 0) {
-      termAppend(`<div class="term-info" style="color:var(--text3)">exit 0</div>`);
+      termAppend(`<div class="term-info">exit 0</div>`);
     } else {
       termAppend(`<div class="term-err">exit ${result.exit_code}</div>`);
     }
@@ -1201,14 +1428,6 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && document.activeElement === input) runCommand();
 });
 
-function escHtml(s) {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/\n/g, '<br>');
-}
-
 async function rebootNode() {
   if (!currentNodeId) return;
   if (!confirm(`Reboot ${nodes[currentNodeId]?.display_name}?`)) return;
@@ -1220,6 +1439,56 @@ async function rebootNode() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// Remove Node (new feature)
+// ════════════════════════════════════════════════════════════════════════════
+let _deleteTargetNodeId = null;
+
+function openDeleteNode(nodeId) {
+  if (!nodeId || !nodes[nodeId]) return;
+  _deleteTargetNodeId = nodeId;
+  const n = nodes[nodeId];
+  document.getElementById('del-node-name').textContent = n.display_name;
+  document.getElementById('del-node-id-label').textContent = n.node_id;
+  document.getElementById('del-confirm-input').value = '';
+  document.getElementById('delete-node-err').textContent = '';
+  document.getElementById('del-confirm-btn').disabled = true;
+  document.getElementById('delete-node-modal').classList.remove('hidden');
+  document.getElementById('del-confirm-input').focus();
+}
+
+function closeDeleteNode() {
+  _deleteTargetNodeId = null;
+  document.getElementById('delete-node-modal').classList.add('hidden');
+}
+
+document.addEventListener('input', e => {
+  if (e.target && e.target.id === 'del-confirm-input') {
+    const n = nodes[_deleteTargetNodeId];
+    const btn = document.getElementById('del-confirm-btn');
+    btn.disabled = !(n && e.target.value === n.node_id);
+  }
+});
+
+async function confirmDeleteNode() {
+  if (!_deleteTargetNodeId) return;
+  const nodeId = _deleteTargetNodeId;
+  const errEl = document.getElementById('delete-node-err');
+  try {
+    await api('DELETE', `/api/nodes/${nodeId}`);
+    closeDeleteNode();
+    if (currentNodeId === nodeId) currentNodeId = null;
+    await loadNodes();
+    if (document.getElementById('view-node').classList.contains('active')) {
+      showOverview();
+    } else if (document.getElementById('view-overview').classList.contains('active')) {
+      await renderOverviewGrid();
+    }
+  } catch (e) {
+    errEl.textContent = e.message;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // Command History
 // ════════════════════════════════════════════════════════════════════════════
 async function loadCommandHistory() {
@@ -1228,14 +1497,14 @@ async function loadCommandHistory() {
   if (!cmds) return;
   const tbody = document.getElementById('cmd-history');
   if (!cmds.length) {
-    tbody.innerHTML = '<tr><td colspan="3" style="color:var(--text3);text-align:center;padding:20px">No commands yet</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="3" style="color:var(--text3);text-align:center;padding:24px">No commands yet</td></tr>';
     return;
   }
   tbody.innerHTML = cmds.map(c => `
     <tr>
       <td class="td-mono" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
           title="${escHtml(c.command)}">${escHtml(c.command.substring(0, 40))}${c.command.length > 40 ? '…' : ''}</td>
-      <td><span class="badge ${c.status === 'completed' ? 'online' : c.status === 'failed' ? 'offline' : 'pending'}">${c.status}</span></td>
+      <td><span class="badge ${c.status === 'completed' ? 'online' : c.status === 'failed' ? 'failed' : 'pending'}">${c.status}</span></td>
       <td style="color:var(--text3);font-size:11px">${fmtTime(c.created_at)}</td>
     </tr>
   `).join('');
@@ -1248,24 +1517,24 @@ async function loadServices(nodeId) {
   const node = nodes[nodeId];
   const tbody = document.getElementById('services-table');
   if (!node || !node.is_online) {
-    tbody.innerHTML = '<tr><td colspan="3" style="color:var(--text3);text-align:center;padding:20px">Node offline</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="3" style="color:var(--text3);text-align:center;padding:24px">Node offline</td></tr>';
     return;
   }
   try {
     const svcs = await api('GET', `/api/nodes/${nodeId}/services`);
     if (!svcs || !svcs.length) {
-      tbody.innerHTML = '<tr><td colspan="3" style="color:var(--text3);text-align:center;padding:16px">No services tracked yet — waiting for node push</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="3" style="color:var(--text3);text-align:center;padding:18px">No services tracked yet — waiting for node push</td></tr>';
       return;
     }
     tbody.innerHTML = svcs.map(s => `
       <tr>
         <td>${escHtml(s.name)}</td>
         <td><span class="badge ${s.active ? 'online' : 'offline'}">${s.active ? 'active' : 'inactive'}</span></td>
-        <td><span style="color:var(--text2);font-size:11px">${s.enabled ? 'enabled' : 'disabled'}</span></td>
+        <td><span style="color:var(--text2);font-size:11px;font-weight:600">${s.enabled ? 'enabled' : 'disabled'}</span></td>
       </tr>
     `).join('');
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="3" style="color:var(--crit);text-align:center;padding:16px">${escHtml(e.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="3" style="color:var(--crit);text-align:center;padding:18px">${escHtml(e.message)}</td></tr>`;
   }
 }
 
@@ -1287,8 +1556,8 @@ async function loadUsers() {
     if (!users) return;
     tbody.innerHTML = users.map(u => `
       <tr>
-        <td style="font-weight:500">${escHtml(u.username)}</td>
-        <td><span class="badge ${u.role === 'admin' ? 'online' : u.role === 'operator' ? 'pending' : 'offline'}">${u.role}</span></td>
+        <td style="font-weight:600">${escHtml(u.username)}</td>
+        <td><span class="badge ${u.role === 'admin' ? 'failed' : u.role === 'operator' ? 'warning' : 'info'}">${u.role}</span></td>
         <td><span class="badge ${u.is_active ? 'online' : 'offline'}">${u.is_active ? 'active' : 'disabled'}</span></td>
         <td style="color:var(--text3);font-size:11px">${fmtDate(u.last_login)}</td>
         <td>
@@ -1302,7 +1571,7 @@ async function loadUsers() {
       </tr>
     `).join('');
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="5" style="color:var(--crit);text-align:center;padding:20px">${escHtml(e.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" style="color:var(--crit);text-align:center;padding:24px">${escHtml(e.message)}</td></tr>`;
   }
 }
 
@@ -1320,12 +1589,12 @@ async function submitAddUser() {
   const email = document.getElementById('add-user-email').value.trim();
   const role = document.getElementById('add-user-role').value;
 
-  if (!username || !password) {
-    document.getElementById('add-user-err').textContent = 'Username and password are required';
+  if (!username || !password || !email) {
+    document.getElementById('add-user-err').textContent = 'Username, password, and email are required';
     return;
   }
   try {
-    await api('POST', '/api/users', { username, password, email: email || null, role });
+    await api('POST', '/api/users', { username, password, email, role });
     closeAddUser();
     await loadUsers();
   } catch (e) {
@@ -1396,7 +1665,10 @@ async function loadAlerts() {
   const alerts = await api('GET', '/api/alerts?unresolved_only=true&limit=100');
   const container = document.getElementById('alerts-list');
   if (!alerts || !alerts.length) {
-    container.innerHTML = '<div class="empty"><div class="empty-icon">✅</div><div>No active alerts</div></div>';
+    container.innerHTML = `<div class="empty">
+      <div class="empty-icon-wrap"><div class="icon-badge mint" style="width:48px;height:48px;border-radius:20px">${ICONS.check}</div></div>
+      <div class="empty-text">No active alerts</div>
+    </div>`;
     return;
   }
   container.innerHTML = alerts.map(a => {
@@ -1404,13 +1676,13 @@ async function loadAlerts() {
     return `
       <div class="alert-row">
         <div class="alert-sev ${a.severity}"></div>
-        <div>
+        <div style="flex:1">
           <div class="alert-msg">${escHtml(a.message)}</div>
           <div class="alert-node">${node?.display_name || a.node_id}</div>
         </div>
-        <div style="margin-left:auto;text-align:right">
+        <div style="text-align:right">
           <div class="alert-time">${fmtDate(a.fired_at)}</div>
-          <button class="btn btn-ghost btn-sm" style="margin-top:4px"
+          <button class="btn btn-ghost btn-sm" style="margin-top:6px"
             onclick="ackAlert('${a.id}')">Ack</button>
         </div>
       </div>
@@ -1433,10 +1705,39 @@ async function showAuditView() {
   document.getElementById('nav-audit').classList.add('active');
   renderSidebar();
 
-  const logs = await api('GET', '/api/commands-log').catch(() => null);
   const container = document.getElementById('audit-list');
 
-  // Show command history across all nodes as audit log
+  try {
+    const entries = await api('GET', '/api/audit-log?limit=100');
+    if (entries) {
+      if (!entries.length) {
+        container.innerHTML = `<div class="empty">
+          <div class="empty-icon-wrap"><div class="icon-badge violet" style="width:48px;height:48px;border-radius:20px">${ICONS.clipboard}</div></div>
+          <div class="empty-text">No audit entries yet</div>
+        </div>`;
+        return;
+      }
+      container.innerHTML = entries.map(e => {
+        const nodeName = e.node_id
+          ? (Object.values(nodes).find(n => n.id === e.node_id)?.display_name || e.node_id)
+          : '—';
+        const detail = e.details ? JSON.stringify(e.details).substring(0, 100) : '';
+        return `
+          <div class="log-entry">
+            <span class="log-time">${fmtDate(e.created_at)}</span>
+            <span class="log-action">${escHtml(e.action)}</span>
+            <span class="log-detail">${escHtml(nodeName)} ${escHtml(detail)}</span>
+          </div>
+        `;
+      }).join('');
+      return;
+    }
+  } catch (err) {
+    // Fall through to command-history fallback below (e.g. non-admin user
+    // without access to /api/audit-log).
+  }
+
+  // Fallback: show recent command history across nodes
   const cmdsAll = await Promise.allSettled(
     Object.keys(nodes).slice(0, 10).map(nid =>
       api('GET', `/api/nodes/${nid}/commands?limit=10`)
@@ -1453,7 +1754,10 @@ async function showAuditView() {
   allCmds.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
   if (!allCmds.length) {
-    container.innerHTML = '<div class="empty"><div class="empty-icon">📋</div><div>No commands logged</div></div>';
+    container.innerHTML = `<div class="empty">
+      <div class="empty-icon-wrap"><div class="icon-badge violet" style="width:48px;height:48px;border-radius:20px">${ICONS.clipboard}</div></div>
+      <div class="empty-text">No commands logged</div>
+    </div>`;
     return;
   }
 
@@ -1462,7 +1766,7 @@ async function showAuditView() {
       <span class="log-time">${fmtDate(c.created_at)}</span>
       <span class="log-action">${escHtml(c._node)}</span>
       <span class="log-detail">${escHtml(c.command.substring(0, 100))}</span>
-      <span class="badge ${c.status === 'completed' ? 'online' : 'offline'}" style="margin-left:auto">${c.status}</span>
+      <span class="badge ${c.status === 'completed' ? 'online' : 'failed'}" style="margin-left:auto">${c.status}</span>
     </div>
   `).join('');
 }
@@ -1506,18 +1810,19 @@ document.getElementById('login-pass').addEventListener('keydown', e => {
   if (e.key === 'Enter') login();
 });
 document.getElementById('topbar-user').addEventListener('click', () => {
-  const opts = ['Change Password', 'Log Out'];
-  const choice = window.confirm('Log out of PiCommand?') ? 'logout' : null;
-  if (choice === 'logout') logout();
+  if (confirm('Log out of PiCommand?')) logout();
 });
 
 // Add register button to sidebar
 document.getElementById('node-list').insertAdjacentHTML('beforebegin', `
-  <div style="padding:8px 14px">
+  <div style="padding:10px 14px 4px">
     <button class="btn btn-primary btn-sm" style="width:100%;justify-content:center"
-      onclick="openRegister()">+ Register Node</button>
+      onclick="openRegister()" data-icon-btn="plus">Register Node</button>
   </div>
 `);
+
+// Inject all icons into static markup
+injectIcons(document);
 
 if (token) {
   document.getElementById('login-screen').style.display = 'none';
