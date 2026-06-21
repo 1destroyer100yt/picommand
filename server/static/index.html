@@ -1478,6 +1478,7 @@ async function confirmDeleteNode() {
     closeDeleteNode();
     if (currentNodeId === nodeId) currentNodeId = null;
     await loadNodes();
+    await updateStats();
     if (document.getElementById('view-node').classList.contains('active')) {
       showOverview();
     } else if (document.getElementById('view-overview').classList.contains('active')) {
