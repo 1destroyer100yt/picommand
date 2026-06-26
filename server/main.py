@@ -77,8 +77,11 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
+    # Issue #5: browsers reject allow_origins=["*"] with allow_credentials=True.
+    # When ALLOWED_HOSTS is the default wildcard, drop credentials flag so the
+    # combination is valid. Operators should set explicit origins in production.
     allow_origins=settings.ALLOWED_HOSTS,
-    allow_credentials=True,
+    allow_credentials=settings.ALLOWED_HOSTS != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -57,7 +57,8 @@ CREATE TABLE nodes (
     hostname VARCHAR(255),
     os_version TEXT,
     arch VARCHAR(32),
-    pi_model TEXT
+    pi_model TEXT,
+    agent_version VARCHAR(32)                    -- reported agent version (Issue #1)
 );
 
 CREATE TABLE node_metrics (
@@ -133,21 +134,18 @@ CREATE INDEX idx_audit_node ON audit_log(node_id, created_at DESC);
 -- FILE TRANSFERS
 -- ============================================================
 
-CREATE TYPE transfer_direction AS ENUM ('upload', 'download');
-CREATE TYPE transfer_status AS ENUM ('pending', 'in_progress', 'completed', 'failed');
-
+-- ORM uses plain VARCHAR for direction ('push'/'pull') and status, no file_name col (Issue #3)
 CREATE TABLE file_transfers (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     node_id UUID NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
     initiated_by UUID REFERENCES users(id),
-    direction transfer_direction NOT NULL,
+    direction VARCHAR(16) NOT NULL,              -- 'push' or 'pull' (Issue #3)
     remote_path TEXT NOT NULL,
-    file_name VARCHAR(255) NOT NULL,
     file_size_bytes BIGINT,
-    status transfer_status NOT NULL DEFAULT 'pending',
+    status VARCHAR(32) NOT NULL DEFAULT 'pending',  -- pending/in_progress/completed/failed (Issue #3)
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at TIMESTAMPTZ,
-    error_message TEXT
+    error TEXT                                   -- was error_message (Issue #3)
 );
 
 -- ============================================================
@@ -160,10 +158,11 @@ CREATE TABLE alert_rules (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     node_id UUID REFERENCES nodes(id) ON DELETE CASCADE,  -- NULL = all nodes
     metric VARCHAR(64) NOT NULL,   -- 'cpu_percent', 'ram_percent', 'disk_percent', etc
+    operator VARCHAR(8) NOT NULL DEFAULT 'gte',           -- gt, lt, gte, lte (Issue #2)
     threshold REAL NOT NULL,
     severity alert_severity NOT NULL DEFAULT 'warning',
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_by UUID REFERENCES users(id),
+    message TEXT,                                         -- optional override message (Issue #2)
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,                -- was is_active (Issue #2)
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

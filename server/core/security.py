@@ -84,6 +84,8 @@ def verify_node_signature(public_key_pem: str, challenge: str, signature_hex: st
     Verify that a node signed the challenge with its private key.
     Uses Ed25519 or RSA depending on key type.
     """
+    import logging as _logging
+    _log = _logging.getLogger("picommand.security")
     try:
         from cryptography.hazmat.primitives import hashes, serialization
         from cryptography.hazmat.primitives.asymmetric import ed25519, padding
@@ -106,5 +108,16 @@ def verify_node_signature(public_key_pem: str, challenge: str, signature_hex: st
                 hashes.SHA256(),
             )
         return True
-    except (InvalidSignature, Exception):
+    except Exception as exc:
+        from cryptography.exceptions import InvalidSignature
+        # Issue #9: The original `except (InvalidSignature, Exception)` was redundant
+        # and silently swallowed misconfig errors (malformed PEM, bad hex, wrong key
+        # type) making them indistinguishable from a genuine bad signature.
+        # Now we log anything that isn't a clean InvalidSignature so misconfig is
+        # visible in logs rather than silently masked.
+        if not isinstance(exc, InvalidSignature):
+            _log.warning(
+                "verify_node_signature: unexpected error (possible misconfiguration): "
+                "%s: %s", type(exc).__name__, exc
+            )
         return False

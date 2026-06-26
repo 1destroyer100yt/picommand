@@ -68,8 +68,19 @@ class ConnectionManager:
     # ── Connection Lifecycle ──────────────────────────────────────────────────
 
     async def connect(self, state: ConnectionState):
+        # Issue #7: Evict any existing connection for this node atomically before
+        # registering the new one.  If a node reconnects before the old socket's
+        # finally block runs disconnect(), the stale disconnect() would otherwise
+        # pop the *new* ConnectionState, marking a live node offline.
         async with self._lock:
+            old = self._connections.pop(state.node_id, None)
             self._connections[state.node_id] = state
+        if old:
+            # Drain pending futures on the *old* state so callers aren't stuck.
+            for fut in old.pending_commands.values():
+                if not fut.done():
+                    fut.set_exception(ConnectionError("Node reconnected; old connection replaced"))
+            logger.info(f"Node reconnected (old state evicted): {state.node_id}")
         logger.info(f"Node connected: {state.node_id} from {state.ip_address}")
         await self._broadcast_event({
             "event": "node_connected",
@@ -77,9 +88,14 @@ class ConnectionManager:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         })
 
-    async def disconnect(self, node_id: str):
+    async def disconnect(self, node_id: str, expected_state: "ConnectionState | None" = None):
         async with self._lock:
-            state = self._connections.pop(node_id, None)
+            current = self._connections.get(node_id)
+            # Issue #7: only pop if this disconnect belongs to the *current* state.
+            # If a reconnect already replaced it, leave the new state alone.
+            if current is None or (expected_state is not None and current is not expected_state):
+                return
+            state = self._connections.pop(node_id)
         if state:
             # Fail all pending command futures
             for fut in state.pending_commands.values():

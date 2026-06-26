@@ -187,6 +187,8 @@ async def node_websocket(websocket: WebSocket, node_id: str):
 
             elif msg_type == "metrics":
                 asyncio.create_task(_store_metrics(node.id, msg))
+                # Issue #4: agent never sends heartbeat, so bump last_seen on every metrics push too
+                asyncio.create_task(_update_last_seen(node.id))
 
             elif msg_type == "command_result":
                 command_id = msg.get("command_id")
@@ -233,7 +235,7 @@ async def node_websocket(websocket: WebSocket, node_id: str):
     except Exception as e:
         logger.error(f"Node {node_id} error: {e}\n{traceback.format_exc()}")
     finally:
-        await manager.disconnect(node_id)
+        await manager.disconnect(node_id, expected_state=state)
         async with AsyncSessionLocal() as db:
             await db.execute(
                 update(Node)

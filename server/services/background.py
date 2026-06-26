@@ -230,17 +230,30 @@ async def server_auto_update():
             head = _run(["git", "rev-parse", "HEAD"]).stdout.strip()
             origin = _run(["git", "rev-parse", "origin/main"]).stdout.strip()
 
-            if head and origin and head != origin:
-                logger.warning(f"Server behind origin/main ({head[:8]} → {origin[:8]}); updating")
-                manager.set_update_in_progress(True)
-                await _log_auto_update("server", head[:8], origin[:8], success=True)
-                # Hand off to the update script; it restarts the service.
-                subprocess.Popen(
-                    ["bash", f"{repo}/scripts/update-server.sh"],
-                    cwd=repo,
+            if not head or not origin or head == origin:
+                continue
+
+            # Issue #8: `head != origin` fires when local is *ahead* of or *diverged*
+            # from origin, not just behind — which would reset local commits.
+            # Use `git merge-base --is-ancestor` to confirm HEAD is strictly behind.
+            is_behind = _run(["git", "merge-base", "--is-ancestor", head, origin])
+            if is_behind.returncode != 0:
+                logger.info(
+                    f"Auto-update: local ({head[:8]}) is ahead of or diverged from "
+                    f"origin/main ({origin[:8]}); skipping update"
                 )
-                # Give the script a moment; systemd will stop us.
-                await asyncio.sleep(5)
+                continue
+
+            logger.warning(f"Server behind origin/main ({head[:8]} → {origin[:8]}); updating")
+            manager.set_update_in_progress(True)
+            await _log_auto_update("server", head[:8], origin[:8], success=True)
+            # Hand off to the update script; it restarts the service.
+            subprocess.Popen(
+                ["bash", f"{repo}/scripts/update-server.sh"],
+                cwd=repo,
+            )
+            # Give the script a moment; systemd will stop us.
+            await asyncio.sleep(5)
         except asyncio.CancelledError:
             raise
         except Exception as e:
