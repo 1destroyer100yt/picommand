@@ -2,8 +2,6 @@
 REST API: nodes, commands, metrics, file transfers, deployments, users, alerts,
 tokens, audit log, scheduled jobs, bulk commands.
 """
-from __future__ import annotations
-
 import asyncio
 import base64
 import io
