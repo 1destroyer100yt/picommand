@@ -122,18 +122,23 @@ async def node_websocket(websocket: WebSocket, node_id: str):
     node_meta = msg.get("metadata", {})
 
     async with AsyncSessionLocal() as db:
+        # Only overwrite metadata fields the agent actually sent — a reconnect
+        # without metadata must not wipe known hostname/os/model with NULLs.
+        values = {
+            "status": NodeStatus.online,
+            "last_seen": datetime.now(timezone.utc),
+            "ip_address": client_ip,
+        }
+        for db_field, meta_key in (
+            ("hostname", "hostname"), ("os_version", "os_version"),
+            ("arch", "arch"), ("pi_model", "pi_model"),
+        ):
+            if node_meta.get(meta_key):
+                values[db_field] = node_meta[meta_key]
+        if node_meta.get("agent_version"):
+            values["agent_version"] = node_meta["agent_version"]
         await db.execute(
-            update(Node)
-            .where(Node.node_id == node_id)
-            .values(
-                status=NodeStatus.online,
-                last_seen=datetime.now(timezone.utc),
-                ip_address=client_ip,
-                hostname=node_meta.get("hostname"),
-                os_version=node_meta.get("os_version"),
-                arch=node_meta.get("arch"),
-                pi_model=node_meta.get("pi_model"),
-            )
+            update(Node).where(Node.node_id == node_id).values(**values)
         )
         await db.commit()
 
@@ -235,14 +240,18 @@ async def node_websocket(websocket: WebSocket, node_id: str):
     except Exception as e:
         logger.error(f"Node {node_id} error: {e}\n{traceback.format_exc()}")
     finally:
-        await manager.disconnect(node_id, expected_state=state)
-        async with AsyncSessionLocal() as db:
-            await db.execute(
-                update(Node)
-                .where(Node.node_id == node_id)
-                .values(status=NodeStatus.offline)
-            )
-            await db.commit()
+        # Only mark the node offline if THIS socket was still the live
+        # connection. If the node already reconnected, disconnect() returns
+        # False and we must not clobber the new connection's online status.
+        was_current = await manager.disconnect(node_id, expected_state=state)
+        if was_current:
+            async with AsyncSessionLocal() as db:
+                await db.execute(
+                    update(Node)
+                    .where(Node.node_id == node_id)
+                    .values(status=NodeStatus.offline)
+                )
+                await db.commit()
 
 
 # ── Background DB tasks ───────────────────────────────────────────────────────
@@ -285,10 +294,15 @@ async def _store_metrics(node_db_id: UUID, msg: dict):
 
 async def _update_command_result(command_id: str, result: dict):
     from server.db.models import Command, CommandStatus
+    try:
+        cmd_uuid = UUID(command_id)
+    except (ValueError, AttributeError, TypeError):
+        logger.warning(f"Ignoring command_result with malformed command_id: {command_id!r}")
+        return
     async with AsyncSessionLocal() as db:
         await db.execute(
             update(Command)
-            .where(Command.id == UUID(command_id))
+            .where(Command.id == cmd_uuid)
             .values(
                 status=CommandStatus.completed if result["exit_code"] == 0 else CommandStatus.failed,
                 exit_code=result["exit_code"],

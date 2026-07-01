@@ -1238,8 +1238,8 @@ function renderSidebar() {
          id="sidebar-node-${n.node_id}"
          onclick="showNode('${n.node_id}')">
       <div class="node-status-dot ${n.is_online ? 'online' : n.status}"></div>
-      <span class="node-name">${n.display_name}</span>
-      ${n.location ? `<span class="node-location">${n.location}</span>` : ''}
+      <span class="node-name">${escHtml(n.display_name)}</span>
+      ${n.location ? `<span class="node-location">${escHtml(n.location)}</span>` : ''}
     </div>
   `).join('');
 }
@@ -1304,13 +1304,13 @@ async function renderOverviewGrid() {
           <div class="icon-badge sm ${st === 'online' ? 'mint' : st === 'pending' ? 'amber' : ''}">${ICONS.server}</div>
           <div>
             <div style="display:flex;align-items:center;gap:8px">
-              <span class="overview-node-name">${n.display_name}</span>
+              <span class="overview-node-name">${escHtml(n.display_name)}</span>
             </div>
             <span class="badge ${st}" style="margin-top:6px;display:inline-block">${st}</span>
           </div>
         </div>
-        <div class="overview-node-meta">${n.hostname || n.node_id}${n.location ? ' · ' + n.location : ''}</div>
-        ${n.pi_model ? `<div style="font-size:10px;color:var(--text3);margin-top:3px;font-weight:500">${n.pi_model}</div>` : ''}
+        <div class="overview-node-meta">${escHtml(n.hostname || n.node_id)}${n.location ? ' · ' + escHtml(n.location) : ''}</div>
+        ${n.pi_model ? `<div style="font-size:10px;color:var(--text3);margin-top:3px;font-weight:500">${escHtml(n.pi_model)}</div>` : ''}
         <div class="overview-mini-metrics">
           <div class="omm">
             <div class="omm-lbl">CPU</div>
@@ -1372,7 +1372,7 @@ function renderSysinfo(node) {
     ['Tags', (node.tags || []).join(', ') || '—'],
   ];
   document.getElementById('sysinfo-table').innerHTML = rows.map(([k, v]) =>
-    `<tr><td style="color:var(--text3);font-size:11px;width:40%;font-weight:600">${k}</td><td class="td-mono">${v}</td></tr>`
+    `<tr><td style="color:var(--text3);font-size:11px;width:40%;font-weight:600">${k}</td><td class="td-mono">${escHtml(v)}</td></tr>`
   ).join('');
 }
 
@@ -1514,7 +1514,7 @@ async function runCommand() {
   input.disabled = true;
   document.getElementById('btn-run').disabled = true;
 
-  termAppend(`<div><span class="term-prompt">${nodes[currentNodeId]?.hostname || currentNodeId} $</span> <span class="term-cmd">${escHtml(cmd)}</span></div>`);
+  termAppend(`<div><span class="term-prompt">${escHtml(nodes[currentNodeId]?.hostname || currentNodeId)} $</span> <span class="term-cmd">${escHtml(cmd)}</span></div>`);
 
   try {
     const result = await api('POST', `/api/nodes/${currentNodeId}/commands`, { command: cmd, timeout: 30 });
@@ -1797,7 +1797,7 @@ async function loadAlerts() {
         <div class="alert-sev ${a.severity}"></div>
         <div style="flex:1">
           <div class="alert-msg">${escHtml(a.message)}</div>
-          <div class="alert-node">${node?.display_name || a.node_id}</div>
+          <div class="alert-node">${escHtml(node?.display_name || a.node_id)}</div>
         </div>
         <div style="text-align:right">
           <div class="alert-time">${fmtDate(a.fired_at)}</div>

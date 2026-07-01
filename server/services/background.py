@@ -215,20 +215,36 @@ async def server_auto_update():
     interval = settings.SERVER_UPDATE_CHECK_HOURS * 3600
     repo = settings.REPO_DIR
 
+    # If REPO_DIR isn't a git checkout (common when /opt/picommand is a copied
+    # install and the clone lives elsewhere), say so once and stop — otherwise
+    # this would log a cryptic git error every cycle forever.
+    import os.path
+    if not os.path.isdir(os.path.join(repo, ".git")):
+        logger.warning(
+            f"Server auto-update disabled: REPO_DIR={repo!r} is not a git repository. "
+            f"Set REPO_DIR in .env to your git clone (e.g. /root/picommand/picommand) to enable."
+        )
+        return
+
+    def _run_sync(args):
+        return subprocess.run(args, cwd=repo, capture_output=True, text=True, timeout=120)
+
     while True:
         try:
             await asyncio.sleep(interval)
 
-            def _run(args):
-                return subprocess.run(args, cwd=repo, capture_output=True, text=True, timeout=120)
+            # subprocess.run is blocking — run in a thread so a slow git fetch
+            # can't freeze the event loop (which would stall every agent WS).
+            async def _run(args):
+                return await asyncio.to_thread(_run_sync, args)
 
-            fetch = _run(["git", "fetch", "origin", "main"])
+            fetch = await _run(["git", "fetch", "origin", "main"])
             if fetch.returncode != 0:
                 logger.warning(f"git fetch failed: {fetch.stderr.strip()}")
                 continue
 
-            head = _run(["git", "rev-parse", "HEAD"]).stdout.strip()
-            origin = _run(["git", "rev-parse", "origin/main"]).stdout.strip()
+            head = (await _run(["git", "rev-parse", "HEAD"])).stdout.strip()
+            origin = (await _run(["git", "rev-parse", "origin/main"])).stdout.strip()
 
             if not head or not origin or head == origin:
                 continue
@@ -236,7 +252,7 @@ async def server_auto_update():
             # Issue #8: `head != origin` fires when local is *ahead* of or *diverged*
             # from origin, not just behind — which would reset local commits.
             # Use `git merge-base --is-ancestor` to confirm HEAD is strictly behind.
-            is_behind = _run(["git", "merge-base", "--is-ancestor", head, origin])
+            is_behind = await _run(["git", "merge-base", "--is-ancestor", head, origin])
             if is_behind.returncode != 0:
                 logger.info(
                     f"Auto-update: local ({head[:8]}) is ahead of or diverged from "

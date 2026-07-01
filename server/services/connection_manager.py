@@ -80,6 +80,9 @@ class ConnectionManager:
             for fut in old.pending_commands.values():
                 if not fut.done():
                     fut.set_exception(ConnectionError("Node reconnected; old connection replaced"))
+            for fut in old.pending_file_transfers.values():
+                if not fut.done():
+                    fut.set_exception(ConnectionError("Node reconnected; old connection replaced"))
             logger.info(f"Node reconnected (old state evicted): {state.node_id}")
         logger.info(f"Node connected: {state.node_id} from {state.ip_address}")
         await self._broadcast_event({
@@ -88,25 +91,35 @@ class ConnectionManager:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         })
 
-    async def disconnect(self, node_id: str, expected_state: "ConnectionState | None" = None):
+    async def disconnect(self, node_id: str, expected_state: "ConnectionState | None" = None) -> bool:
+        """
+        Remove a connection. Returns True if this call actually removed the
+        current connection, False if it was a stale disconnect (a reconnect
+        already replaced the state) — callers should skip their own offline
+        bookkeeping when False.
+        """
         async with self._lock:
             current = self._connections.get(node_id)
             # Issue #7: only pop if this disconnect belongs to the *current* state.
             # If a reconnect already replaced it, leave the new state alone.
             if current is None or (expected_state is not None and current is not expected_state):
-                return
+                return False
             state = self._connections.pop(node_id)
-        if state:
-            # Fail all pending command futures
-            for fut in state.pending_commands.values():
-                if not fut.done():
-                    fut.set_exception(ConnectionError("Node disconnected"))
-            logger.info(f"Node disconnected: {node_id}")
-            await self._broadcast_event({
-                "event": "node_disconnected",
-                "node_id": node_id,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            })
+        # Fail all pending futures (commands AND file transfers) so callers
+        # aren't left hanging until their timeouts.
+        for fut in state.pending_commands.values():
+            if not fut.done():
+                fut.set_exception(ConnectionError("Node disconnected"))
+        for fut in state.pending_file_transfers.values():
+            if not fut.done():
+                fut.set_exception(ConnectionError("Node disconnected"))
+        logger.info(f"Node disconnected: {node_id}")
+        await self._broadcast_event({
+            "event": "node_disconnected",
+            "node_id": node_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+        return True
 
     def is_connected(self, node_id: str) -> bool:
         return node_id in self._connections
